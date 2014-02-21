@@ -1,0 +1,30 @@
+name:                OpenGLES
+version:             0.1.0.0
+synopsis:            OpenGL ES 2.0 with EGL 1.4
+description:         OpenGL ES 2.0 with EGL 1.4
+license:             PublicDomain
+license-file:        LICENSE
+author:              undefined
+maintainer:          undefined
+-- copyright:           
+category:            Graphics
+build-type:          Simple
+extra-source-files:
+  include/EGL/egl.h
+  include/EGL/eglext.h
+  include/EGL/eglplatform.h
+  include/KHR/khrplatform.h
+cabal-version:       >=1.10
+
+library
+  -- exposed-modules:     
+  -- other-modules:       
+  other-extensions:    ForeignFunctionInterface
+  build-depends:       base >=4.6 && <4.7
+  -- hs-source-dirs:      
+  include-dirs: include
+  default-language:    Haskell2010
+  
+  if os(ios)
+    frameworks: OpenGLES
+  
