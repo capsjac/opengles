@@ -8,10 +8,13 @@ import Foreign.Ptr
 -- * Types
 -- from EGL/eglplatform.h
 -- ** Window-system-dependent types
-class EGLNativeWindowType a where getNativeWindowPtr :: a -> Ptr ()
-class EGLNativePixmapType a where getNativePixmapPtr :: a -> Ptr ()
+type EGLNativeWindowType = Ptr ()
+type EGLNativePixmapType = Ptr ()
 -- XXX Symbian platform uses int instead of pointer...
-class EGLNativeDisplayType a where getNativeDisplayPtr :: a -> Ptr ()
+type EGLNativeDisplayType = Ptr ()
+class EGLNativeWindow a where getNativeWindow :: a -> EGLNativeWindowType
+class EGLNativePixmap a where getNativePixmap :: a -> EGLNativePixmapType
+class EGLNativeDisplay a where getNativeDisplay :: a -> EGLNativeDisplayType
 
 -- ** EGL Types
 -- | 32-bit signed integer
@@ -35,17 +38,43 @@ foreign import ccall "EGL/egl.h eglTerminate" c_eglTerminate :: EGLDisplay -> IO
 
 foreign import ccall "EGL/egl.h eglQueryString" c_eglQueryString :: EGLDisplay -> EGLint -> IO CString
 
+foreign import ccall "EGL/egl.h eglGetConfigs" c_eglGetConfigs :: EGLDisplay -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
 foreign import ccall "EGL/egl.h eglChooseConfig" c_eglChooseConfig :: EGLDisplay -> Ptr EGLint -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
 foreign import ccall "EGL/egl.h eglGetConfigAttrib" c_eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
 
 foreign import ccall "EGL/egl.h eglCreateWindowSurface" c_eglCreateWindowSurface :: EGLDisplay -> EGLConfig -> EGLNativeWindowType -> Ptr EGLint -> IO EGLSurface
-foreign import ccall "EGL/egl.h eglDestroySurface" c_eglDestroySurface :: EGLDisplay -> EGLSurface -> IO Word32
+foreign import ccall "EGL/egl.h eglCreatePbufferSurface" c_eglCreateWindowSurface :: EGLDisplay -> EGLConfig -> Ptr EGLint -> IO EGLSurface
+foreign import ccall "EGL/egl.h eglCreatePixmapSurface" c_eglCreateWindowSurface :: EGLDisplay -> EGLConfig -> EGLNativePixmapType -> Ptr EGLint -> IO EGLSurface
+foreign import ccall "EGL/egl.h eglDestroySurface" c_eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLBoolean
 foreign import ccall "EGL/egl.h eglQuerySurface" c_eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> Ptr EGLint -> IO EGLBoolean
+
+foreign import ccall "EGL/egl.h eglBindAPI" c_eglBindAPI :: EGLenum -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglQueryAPI" c_eglQueryAPI :: IO EGLenum
+
+foreign import ccall "EGL/egl.h eglWaitClient" c_eglWaitClient :: IO EGLBoolean
+
+foreign import ccall "EGL/egl.h eglReleaseThread" c_eglReleaseThread :: IO EGLBoolean
+
+foreign import ccall "EGL/egl.h eglCreatePbufferFromClientBuffer" c_eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> Ptr EGLint -> IO EGLSurface
+
+foreign import ccall "EGL/egl.h eglSurfaceAttrib" c_eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> EGLint -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglBindTexImage" c_eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglReleaseTexImage" c_eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
 
 foreign import ccall "EGL/egl.h eglSwapInterval" c_eglSwapInterval :: EGLDisplay -> EGLint -> IO EGLBoolean
 
 foreign import ccall "EGL/egl.h eglCreateContext" c_eglCreateContext :: EGLDisplay -> EGLConfig -> EGLContext -> Ptr EGLint -> IO EGLContext
-foreign import ccall "EGL/egl.h eglDestroyContext" c_eglDestroyContext :: EGLDisplay -> EGLContext -> IO Word32
-foreign import ccall "EGL/egl.h eglMakeCurrent" c_eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO Word32
+foreign import ccall "EGL/egl.h eglDestroyContext" c_eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglMakeCurrent" c_eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglSwapBuffers" c_eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO Word32
+foreign import ccall "EGL/egl.h eglGetCurrentContext" c_eglGetCurrentContext :: IO EGLContext
+foreign import ccall "EGL/egl.h eglGetCurrentSurface" c_eglGetCurrentSurface :: EGLint -> IO EGLSurface
+foreign import ccall "EGL/egl.h eglGetCurrentDisplay" c_eglGetCurrentDisplay :: IO EGLDisplay
+foreign import ccall "EGL/egl.h eglQueryContext" c_eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> Ptr EGLint -> IO EGLBoolean
+
+foreign import ccall "EGL/egl.h eglWaitGL" c_eglWaitGL :: IO EGLBoolean
+foreign import ccall "EGL/egl.h eglWaitNative" c_eglWaitNative :: EGLint -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglSwapBuffers" c_eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO EGLBoolean
+foreign import ccall "EGL/egl.h eglCopyBuffers" c_eglCopyBuffers :: EGLDisplay -> EGLSurface -> EGLNativePixmapType -> IO EGLBoolean
+
+foreign import ccall "EGL/egl.h eglGetProcAddress" c_eglGetProcAddress :: CString -> IO (FunPtr  ())
