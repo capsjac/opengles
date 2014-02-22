@@ -8,6 +8,8 @@ import Foreign.Marshal.Alloc (alloca)
 import Foreign.Marshal.Array
 import Foreign.Ptr
 import Foreign.Storable
+import System.IO.Unsafe (unsafePerformIO)
+import Unsafe.Coerce
 
 -- * Types
 -- from EGL/eglplatform.h
@@ -253,9 +255,64 @@ data EGLBindAPIValue = EGLOpenGLAPI | EGLOpenGLESAPI | EGLOpenVGAPI | EGLAPINone
   deriving (Eq, Show)
 --eglBindAPI :: EGLBindAPIValue -> IO Bool
 --eglQueryAPI :: IO EGLBindAPIValue
+--eglCreateContext :: EGLDisplay -> EGLConfig -> EGLContext -> [EGLint] -> EGL EGLContext
+--eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLError
+
+eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO EGLError
+eglMakeCurrent display draw read context =
+  toEglErr (c_eglMakeCurrent display draw read context)
+
+eglGetCurrentContext :: EGL EGLContext
+eglGetCurrentContext =
+  checkErr c_eglGetCurrentContext notNull (return . Right)
+
+eglGetCurrentSurface :: EGLint -> EGL EGLSurface
+eglGetCurrentSurface readdraw =
+  checkErr (c_eglGetCurrentSurface readdraw) notNull (return . Right)
+
+eglGetCurrentDisplay :: EGL EGLDisplay
+eglGetCurrentDisplay =
+  checkErr c_eglGetCurrentDisplay notNull (return . Right)
+
+eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> EGL EGLint
+eglQueryContext display context attribute = alloca $ \value ->
+  checkErr (c_eglQueryContext display context attribute value) isTrue (\_ -> Right <$> peek value)
 
 -- * Synchronization Primitives
+eglWaitClient :: IO EGLError
+eglWaitClient = toEglErr c_eglWaitClient
+-- eglWaitGL is available for backwards compatibility
+-- eglWaitGL :: IO EGLError
+-- eglWaitGL = toEglErr c_eglWaitGL
+
+eglWaitNative :: EGLint -> IO EGLError
+eglWaitNative engine = toEglErr (c_eglWaitNative engine)
+
 -- * Posting the Color Buffer
+eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO EGLError
+eglSwapBuffers display surface =
+  toEglErr (c_eglSwapBuffers display surface)
+
+eglCopyBuffers :: EGLNativePixmap a => EGLDisplay -> EGLSurface -> a -> IO EGLError
+eglCopyBuffers display surface pixmap =
+  toEglErr (c_eglCopyBuffers display surface (getNativePixmap pixmap))
+
+eglSwapInterval :: EGLDisplay -> Int -> IO EGLError
+eglSwapInterval display interval =
+  toEglErr (c_eglSwapInterval display (unsafeCoerce interval))
+
 -- * Render to Textures
+eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLError
+eglBindTexImage display surface buffer =
+  toEglErr (c_eglBindTexImage display surface (buffer))
+
+eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLError
+eglReleaseTexImage display surface buffer =
+  toEglErr (c_eglReleaseTexImage display surface (buffer))
+
 -- * Obtain Extension Function Pointers
+eglGetProcAddress :: String -> FunPtr a
+eglGetProcAddress procname =
+  unsafePerformIO $ withCString procname (unsafeCoerce . c_eglGetProcAddress)
+
 -- * Extending EGL
