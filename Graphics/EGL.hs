@@ -210,7 +210,7 @@ eglGetConfigs display = alloca $ \num_config ->
       checkErr (c_eglGetConfigs display configs n num_config) isTrue $ \_ ->
         Right <$> peekArray n configs
 
--- XXX
+-- XXX EGLConfAttr
 eglChooseConfig :: EGLDisplay -> [EGLAttrib] -> EGL [EGLConfig]
 eglChooseConfig display attrs = withArray (const [0x3038] attrs) $ \attrib_list -> alloca $ \num_config -> do
   success <- c_eglChooseConfig display attrib_list nullPtr 0 num_config
@@ -221,12 +221,9 @@ eglChooseConfig display attrs = withArray (const [0x3038] attrs) $ \attrib_list 
       if success == 0 then Left <$> eglGetError else do
         Right <$> peekArray n configs
 
--- XXX bad api design
---eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> Int -> EGL EGLAttrib
+eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> EGL Int
 eglGetConfigAttrib display config attribute = alloca $ \value -> do
-  success <- c_eglGetConfigAttrib display config attribute value
-  if success /= 0 then Right <$> peek value
-  else Left <$> eglGetError
+  checkErr (c_eglGetConfigAttrib display config attribute value) isTrue (\_ -> Right <$> peek value)
 
 -- * Rendering Surfaces
 eglCreateWindowSurface :: EGLNativeWindow a => EGLDisplay -> EGLConfig -> a -> [EGLAttrib] -> EGL EGLSurface
@@ -239,7 +236,11 @@ eglCreatePbufferSurface display config attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
     checkErr (c_eglCreatePbufferSurface display config attrib_list) notNull (return . Right)
 
---eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> [EGLAttrib] -> IO EGLSurface
+eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> [EGLAttrib] -> EGL EGLSurface
+eglCreatePbufferFromClientBuffer display buftype buffer config attrs =
+  withArray (const [0x3038] attrs) $ \attrib_list ->
+    checkErr (c_eglCreatePbufferFromClientBuffer display buftype buffer config attrib_list) notNull (return . Right)
+
 eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLError
 eglDestroySurface display surface = toEglErr (c_eglDestroySurface display surface)
 
@@ -248,8 +249,13 @@ eglCreatePixmapSurface display config pixmap attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
     checkErr (c_eglCreatePixmapSurface display config (getNativePixmap pixmap) attrib_list) notNull (return . Right)
 
---eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> EGLint -> IO EGLError
---eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> EGL EGLint
+eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> Int -> IO EGLError
+eglSurfaceAttrib display surface attribute value =
+  toEglErr (c_eglSurfaceAttrib display surface attribute value)
+
+eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> EGL Int
+eglQuerySurface display surface attribute = alloca $ \value ->
+  checkErr (c_eglQuerySurface display surface attribute value) isTrue (\_ -> Right <$> peek value)
 
 -- * Rendering Contexts
 -- 0x30A0 | 0x30A1 | 0x30A2 | 0x3038
