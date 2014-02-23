@@ -36,54 +36,55 @@ type EGLSurface = Ptr ()
 type EGLClientBuffer = Ptr ()
 
 -- * EGL Functions
-foreign import ccall "EGL/egl.h eglGetError" c_eglGetError :: IO EGLint
+-- ccall unsafe: For more efficient code. These C calls do not call Haskell.
+foreign import ccall unsafe "EGL/egl.h eglGetError" c_eglGetError :: IO EGLint
 
-foreign import ccall "EGL/egl.h eglGetDisplay" c_eglGetDisplay :: EGLNativeDisplayType -> IO EGLDisplay
-foreign import ccall "EGL/egl.h eglInitialize" c_eglInitialize :: EGLDisplay -> Ptr EGLint -> Ptr EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglTerminate" c_eglTerminate :: EGLDisplay -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglGetDisplay" c_eglGetDisplay :: EGLNativeDisplayType -> IO EGLDisplay
+foreign import ccall unsafe "EGL/egl.h eglInitialize" c_eglInitialize :: EGLDisplay -> Ptr EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglTerminate" c_eglTerminate :: EGLDisplay -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglQueryString" c_eglQueryString :: EGLDisplay -> EGLint -> IO CString
+foreign import ccall unsafe "EGL/egl.h eglQueryString" c_eglQueryString :: EGLDisplay -> EGLint -> IO CString
 
-foreign import ccall "EGL/egl.h eglGetConfigs" c_eglGetConfigs :: EGLDisplay -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglChooseConfig" c_eglChooseConfig :: EGLDisplay -> Ptr EGLint -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglGetConfigAttrib" c_eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglGetConfigs" c_eglGetConfigs :: EGLDisplay -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglChooseConfig" c_eglChooseConfig :: EGLDisplay -> Ptr EGLint -> Ptr EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglGetConfigAttrib" c_eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> Ptr EGLint -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglCreateWindowSurface" c_eglCreateWindowSurface :: EGLDisplay -> EGLConfig -> EGLNativeWindowType -> Ptr EGLint -> IO EGLSurface
-foreign import ccall "EGL/egl.h eglCreatePbufferSurface" c_eglCreatePbufferSurface :: EGLDisplay -> EGLConfig -> Ptr EGLint -> IO EGLSurface
-foreign import ccall "EGL/egl.h eglCreatePixmapSurface" c_eglCreatePixmapSurface :: EGLDisplay -> EGLConfig -> EGLNativePixmapType -> Ptr EGLint -> IO EGLSurface
-foreign import ccall "EGL/egl.h eglDestroySurface" c_eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglQuerySurface" c_eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglCreateWindowSurface" c_eglCreateWindowSurface :: EGLDisplay -> EGLConfig -> EGLNativeWindowType -> Ptr EGLint -> IO EGLSurface
+foreign import ccall unsafe "EGL/egl.h eglCreatePbufferSurface" c_eglCreatePbufferSurface :: EGLDisplay -> EGLConfig -> Ptr EGLint -> IO EGLSurface
+foreign import ccall unsafe "EGL/egl.h eglCreatePixmapSurface" c_eglCreatePixmapSurface :: EGLDisplay -> EGLConfig -> EGLNativePixmapType -> Ptr EGLint -> IO EGLSurface
+foreign import ccall unsafe "EGL/egl.h eglDestroySurface" c_eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglQuerySurface" c_eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> Ptr EGLint -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglBindAPI" c_eglBindAPI :: EGLenum -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglQueryAPI" c_eglQueryAPI :: IO EGLenum
+foreign import ccall unsafe "EGL/egl.h eglBindAPI" c_eglBindAPI :: EGLenum -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglQueryAPI" c_eglQueryAPI :: IO EGLenum
 
-foreign import ccall "EGL/egl.h eglWaitClient" c_eglWaitClient :: IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglWaitClient" c_eglWaitClient :: IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglReleaseThread" c_eglReleaseThread :: IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglReleaseThread" c_eglReleaseThread :: IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglCreatePbufferFromClientBuffer" c_eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> Ptr EGLint -> IO EGLSurface
+foreign import ccall unsafe "EGL/egl.h eglCreatePbufferFromClientBuffer" c_eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> Ptr EGLint -> IO EGLSurface
 
-foreign import ccall "EGL/egl.h eglSurfaceAttrib" c_eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglBindTexImage" c_eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglReleaseTexImage" c_eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglSurfaceAttrib" c_eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglBindTexImage" c_eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglReleaseTexImage" c_eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglSwapInterval" c_eglSwapInterval :: EGLDisplay -> EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglSwapInterval" c_eglSwapInterval :: EGLDisplay -> EGLint -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglCreateContext" c_eglCreateContext :: EGLDisplay -> EGLConfig -> EGLContext -> Ptr EGLint -> IO EGLContext
-foreign import ccall "EGL/egl.h eglDestroyContext" c_eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglMakeCurrent" c_eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglCreateContext" c_eglCreateContext :: EGLDisplay -> EGLConfig -> EGLContext -> Ptr EGLint -> IO EGLContext
+foreign import ccall unsafe "EGL/egl.h eglDestroyContext" c_eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglMakeCurrent" c_eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglGetCurrentContext" c_eglGetCurrentContext :: IO EGLContext
-foreign import ccall "EGL/egl.h eglGetCurrentSurface" c_eglGetCurrentSurface :: EGLint -> IO EGLSurface
-foreign import ccall "EGL/egl.h eglGetCurrentDisplay" c_eglGetCurrentDisplay :: IO EGLDisplay
-foreign import ccall "EGL/egl.h eglQueryContext" c_eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> Ptr EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglGetCurrentContext" c_eglGetCurrentContext :: IO EGLContext
+foreign import ccall unsafe "EGL/egl.h eglGetCurrentSurface" c_eglGetCurrentSurface :: EGLint -> IO EGLSurface
+foreign import ccall unsafe "EGL/egl.h eglGetCurrentDisplay" c_eglGetCurrentDisplay :: IO EGLDisplay
+foreign import ccall unsafe "EGL/egl.h eglQueryContext" c_eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> Ptr EGLint -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglWaitGL" c_eglWaitGL :: IO EGLBoolean
-foreign import ccall "EGL/egl.h eglWaitNative" c_eglWaitNative :: EGLint -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglSwapBuffers" c_eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO EGLBoolean
-foreign import ccall "EGL/egl.h eglCopyBuffers" c_eglCopyBuffers :: EGLDisplay -> EGLSurface -> EGLNativePixmapType -> IO EGLBoolean
+--foreign import ccall unsafe "EGL/egl.h eglWaitGL" c_eglWaitGL :: IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglWaitNative" c_eglWaitNative :: EGLint -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglSwapBuffers" c_eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO EGLBoolean
+foreign import ccall unsafe "EGL/egl.h eglCopyBuffers" c_eglCopyBuffers :: EGLDisplay -> EGLSurface -> EGLNativePixmapType -> IO EGLBoolean
 
-foreign import ccall "EGL/egl.h eglGetProcAddress" c_eglGetProcAddress :: CString -> IO (FunPtr  ())
+foreign import ccall unsafe "EGL/egl.h eglGetProcAddress" c_eglGetProcAddress :: CString -> IO (FunPtr  ())
 
 type EGL a = IO (Either EGLError a)
 
@@ -91,7 +92,7 @@ type EGL a = IO (Either EGLError a)
 -- 0x3000-0x301E (Reserved 0x300F-0x301F for additional errors)
 data EGLError =
   EGLSuccess | EGLNotInitialized | EGLBadAccess | EGLBadAlloc | EGLBadAttribute | EGLBadConfig | EGLBadContext | EGLBadCurrentSurface | EGLBadDisplay | EGLBadMatch | EGLBadNativePixmap | EGLBadNativeWindow | EGLBadParameter | EGLBadSurface | EGLContextLost
-  deriving (Enum, Eq)
+  deriving (Enum)
 
 instance Show EGLError where
   show EGLSuccess = "EGLSuccess: Function succeeded."
@@ -116,53 +117,92 @@ eglGetError = c_eglGetError >>= return . toEnum . (-) 0x3000
 
 -- * Attribute Lists
 -- 0x3020-0x3042 (Reserved 0x3041-0x304F for additional config attributes)
--- TODO [(Attr, Int)] or [GADT], eglTrue, eglFalse
-data EGLAttrib =
-    EGLBufferSize EGLint
-  | EGLAlphaSize EGLint
-  | EGLBlueSize EGLint
-  | EGLGreenSize EGLint
-  | EGLRedSize EGLint
-  | EGLDepthSize EGLint
-  | EGLStencilSize EGLint
-  | EGLConfigCaveat EGLConfigCaveatValue
-  | EGLConfigID EGLint
-  | EGLLevel EGLint
-  | EGLMaxPbufferHeight EGLint
-  | EGLMaxPbufferPixels  EGLint
-  | EGLMaxPbufferWidth EGLint
-  | EGLNativeRenderable EGLBoolean
-  | EGLNativeVisualID EGLint
-  | EGLNativeVisualType EGLint
-  | EGLSamples EGLint
-  | EGLSampleBuffers EGLint
-  | EGLSurfaceType EGLint
-  | EGLTransparentType EGLTransparentTypeValue
-  | EGLTransparentBlueValue EGLint
-  | EGLTransparentGreenValue EGLint
-  | EGLTransparentRedValue EGLint
-  | EGLNone
-  | EGLBindToTextureRGB EGLBoolean
-  | EGLBindToTextureRGBA EGLBoolean
-  | EGLMinSwapInterval EGLint
-  | EGLMaxSwapInterval EGLint
-  | EGLLuminanceSize EGLint
-  | EGLAlphaMaskSize EGLint
-  | EGLColorBufferType EGLColorBufferTypeValue
-  | EGLRenderableType EGLint
-  | EGLMatchNativePixmap EGLint
-  | EGLConformant EGLint
-  deriving (Eq, Show)
+egl_true = 1
+egl_false = 0
+data EGLConfAttr =
+    EGLBufferSize --EGLint
+  | EGLAlphaSize --EGLint
+  | EGLBlueSize --EGLint
+  | EGLGreenSize --EGLint
+  | EGLRedSize --EGLint
+  | EGLDepthSize --EGLint
+  | EGLStencilSize --EGLint
+  | EGLConfigCaveat --EGLConfigCaveatValue
+  | EGLConfigID --EGLint
+  | EGLLevel --EGLint
+  | EGLMaxPbufferHeight --EGLint
+  | EGLMaxPbufferPixels --EGLint
+  | EGLMaxPbufferWidth --EGLint
+  | EGLNativeRenderable --EGLBoolean
+  | EGLNativeVisualID --EGLint
+  | EGLNativeVisualType --EGLint
+  | EGLSamples --EGLint
+  | EGLSampleBuffers --EGLint
+  | EGLSurfaceType --EGLint
+  | EGLTransparentType --EGLTransparentTypeValue
+  | EGLTransparentBlueValue --EGLint
+  | EGLTransparentGreenValue --EGLint
+  | EGLTransparentRedValue --EGLint
+  | EGLBindToTextureRGB --EGLBoolean
+  | EGLBindToTextureRGBA --EGLBoolean
+  | EGLMinSwapInterval --EGLint
+  | EGLMaxSwapInterval --EGLint
+  | EGLLuminanceSize --EGLint
+  | EGLAlphaMaskSize --EGLint
+  | EGLColorBufferType --EGLColorBufferTypeValue
+  | EGLRenderableType --EGLint
+  | EGLMatchNativePixmap -- ^ Pseudo-attribute (not queryable)
+  | EGLConformant --EGLint
 
--- EGL_CONFIG_CAVEAT value EGL_NONE | 0x3050 | 0x3051
-data EGLConfigCaveatValue = EGLNormalConfig | EGLSlowConfig | EGLNonConformantConfig
-  deriving (Eq, Show)
--- EGL_TRANSPARENT_TYPE value EGL_NONE | 0x3052
-data EGLTransparentTypeValue = EGLTransparentNone | EGLTransparentRGB
-  deriving (Eq, Show)
--- EGL_COLOR_BUFFER_TYPE value 0x308E | 0x308F
-data EGLColorBufferTypeValue = EGLRGBBuffer | EGLLuminanceBuffer
-  deriving (Eq, Show)
+instance Enum EGLConfAttr where
+  fromEnum x = case x of
+    EGLBufferSize -> 0x3020
+    EGLAlphaSize -> 0x3021
+    EGLBlueSize -> 0x3022
+    EGLGreenSize -> 0x3023
+    EGLRedSize -> 0x3024
+    EGLDepthSize -> 0x3025
+    EGLStencilSize -> 0x3026
+    EGLConfigCaveat -> 0x3027
+    EGLConfigID -> 0x3028
+    EGLLevel -> 0x3029
+    EGLMaxPbufferHeight -> 0x302A
+    EGLMaxPbufferPixels -> 0x302B
+    EGLMaxPbufferWidth -> 0x302C
+    EGLNativeRenderable -> 0x302D
+    EGLNativeVisualID -> 0x302E
+    EGLNativeVisualType -> 0x302F
+    EGLSamples -> 0x3031
+    EGLSampleBuffers -> 0x3032
+    EGLSurfaceType -> 0x3033
+    EGLTransparentType -> 0x3034
+    EGLTransparentBlueValue -> 0x3035
+    EGLTransparentGreenValue -> 0x3036
+    EGLTransparentRedValue -> 0x3037
+    EGLBindToTextureRGB -> 0x3039
+    EGLBindToTextureRGBA -> 0x303A
+    EGLMinSwapInterval -> 0x303B
+    EGLMaxSwapInterval -> 0x303C
+    EGLLuminanceSize -> 0x303D
+    EGLAlphaMaskSize -> 0x303E
+    EGLColorBufferType -> 0x303F
+    EGLRenderableType -> 0x3040
+    EGLMatchNativePixmap -> 0x3041
+    EGLConformant -> 0x3042
+
+type EGLSurfAttr = Int
+
+-- | EGL_CONFIG_CAVEAT value EGL_NONE | 0x3050 | 0x3051
+egl_none = 0x3038
+egl_slow_config = 0x3050
+egl_non_conformant_config = 0x3051
+
+-- | EGL_TRANSPARENT_TYPE value EGL_NONE | 0x3052
+egl_transparent_rgb = 0x3052
+
+-- | EGL_COLOR_BUFFER_TYPE value 0x308E | 0x308F
+egl_rgb_buffer = 0x308E
+egl_luminance_buffer = 0x308F
 
 -- EGLBoolean -> EGLError
 toEglErr api = api >>= \eglbool ->
@@ -175,6 +215,8 @@ checkPtr api = api >>= \ptr ->
 checkBool api f = api >>= \bool ->
   if isTrue bool then Right <$> f else Left <$> eglGetError
 isTrue = (/= 0)
+withAttrList attrs =
+  withArray $ foldr (\(k, v) l -> fromEnum k : v : l) [0x3038] attrs
 
 -- * Initialization & Terminating
 eglGetDefaultDisplay :: IO EGLDisplay
@@ -210,54 +252,57 @@ eglGetConfigs display = alloca $ \num_config ->
     allocaArray n $ \configs ->
       checkBool (c_eglGetConfigs display configs n num_config) (peekArray n configs)
 
--- XXX EGLConfAttr
-eglChooseConfig :: EGLDisplay -> [EGLAttrib] -> EGL [EGLConfig]
+eglChooseConfig :: EGLDisplay -> [(EGLConfAttr, Int)] -> EGL [EGLConfig]
 eglChooseConfig display attrs = withArray (const [0x3038] attrs) $ \attrib_list -> alloca $ \num_config ->
   checkErr (c_eglChooseConfig display attrib_list nullPtr 0 num_config) isTrue $ \_ -> do
     n <- peek num_config
     allocaArray n $ \configs ->
       checkBool (c_eglChooseConfig display attrib_list configs n num_config) (peekArray n configs)
 
-eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> EGL Int
+eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLConfAttr -> EGL Int
 eglGetConfigAttrib display config attribute = alloca $ \value ->
-  checkBool (c_eglGetConfigAttrib display config attribute value) (peek value)
+  checkBool (c_eglGetConfigAttrib display config (fromEnum attribute) value) (peek value)
 
 -- * Rendering Surfaces
-eglCreateWindowSurface :: EGLNativeWindow a => EGLDisplay -> EGLConfig -> a -> [EGLAttrib] -> EGL EGLSurface
+-- include EGL_RENDER_BUFFER,EGL_VG_COLORSPACE, and EGL_VG_ALPHA_FORMAT + ext
+eglCreateWindowSurface :: EGLNativeWindow a => EGLDisplay -> EGLConfig -> a -> [(EGLSurfAttr, Int)] -> EGL EGLSurface
 eglCreateWindowSurface display config win attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
+  withAttrList attrs $ \attrib_list ->
     checkPtr (c_eglCreateWindowSurface display config (getNativeWindow win) attrib_list)
 
-eglCreatePbufferSurface :: EGLDisplay -> EGLConfig -> [EGLAttrib] -> EGL EGLSurface
+-- include EGL_WIDTH,EGL_HEIGHT,EGL_LARGEST_PBUFFER,EGL_TEXTURE_FORMAT,EGL_TEXTURE_TARGET,
+-- EGL_MIPMAP_TEXTURE,EGL_VG_COLORSPACE, and EGL_VG_ALPHA_FORMAT + ext
+eglCreatePbufferSurface :: EGLDisplay -> EGLConfig -> [(EGLSurfAttr, Int)] -> EGL EGLSurface
 eglCreatePbufferSurface display config attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
+  withAttrList attrs $ \attrib_list ->
     checkPtr (c_eglCreatePbufferSurface display config attrib_list)
 
-eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> [EGLAttrib] -> EGL EGLSurface
+-- include EGL_TEXTURE_FORMAT,EGL_TEXTURE_TARGET, and EGL_MIPMAP_TEXTURE
+eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> [(EGLSurfAttr, Int)] -> EGL EGLSurface
 eglCreatePbufferFromClientBuffer display buftype buffer config attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
+  withAttrList attrs $ \attrib_list ->
     checkPtr (c_eglCreatePbufferFromClientBuffer display buftype buffer config attrib_list)
 
 eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLError
 eglDestroySurface display surface = toEglErr (c_eglDestroySurface display surface)
 
-eglCreatePixmapSurface :: EGLNativePixmap a => EGLDisplay -> EGLConfig -> a ->  [EGLAttrib] -> EGL EGLSurface
+-- include EGL_VG_COLORSPACE and EGL_VG_ALPHA_FORMAT + ext
+eglCreatePixmapSurface :: EGLNativePixmap a => EGLDisplay -> EGLConfig -> a ->  [(EGLSurfAttr, Int)] -> EGL EGLSurface
 eglCreatePixmapSurface display config pixmap attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
+  withAttrList attrs $ \attrib_list ->
     checkPtr (c_eglCreatePixmapSurface display config (getNativePixmap pixmap) attrib_list)
 
-eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> Int -> IO EGLError
+eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLSurfAttr -> Int -> IO EGLError
 eglSurfaceAttrib display surface attribute value =
   toEglErr (c_eglSurfaceAttrib display surface attribute value)
 
-eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> EGL Int
+eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLSurfAttr -> EGL Int
 eglQuerySurface display surface attribute = alloca $ \value ->
   checkBool (c_eglQuerySurface display surface attribute value) (peek value)
 
 -- * Rendering Contexts
 -- 0x30A0 | 0x30A1 | 0x30A2 | 0x3038
 data EGLBindAPIValue = EGLOpenGLESAPI | EGLOpenVGAPI | EGLOpenGLAPI | EGLAPINone
-  deriving (Eq, Show)
 instance Enum EGLBindAPIValue where
   fromEnum EGLOpenGLESAPI = 0x30A0
   fromEnum EGLOpenVGAPI = 0x30A1
@@ -274,14 +319,17 @@ eglBindAPI value = toEglErr (c_eglBindAPI (fromEnum value))
 eglQueryAPI :: IO EGLBindAPIValue
 eglQueryAPI = toEnum <$> c_eglQueryAPI
 
-eglCreateContext :: EGLDisplay -> EGLConfig -> [EGLint] -> EGL EGLContext
+-- only EGL_CONTEXT_CLIENT_VERSION 0x3098 = 1 or 2
+data EGLContextAttr = EGLContextClientVersion
+instance Enum EGLContextAttr where
+  fromEnum EGLContextClientVersion = 0x3098
+eglCreateContext :: EGLDisplay -> EGLConfig -> [(EGLContextAttr, Int)] -> EGL EGLContext
 eglCreateContext display config attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkPtr (c_eglCreateContext display config nullPtr attrib_list)
+  eglCreateContextWithShareContext display config nullPtr attrs
 
-eglCreateContextWithShareContext :: EGLDisplay -> EGLConfig -> EGLContext -> [EGLint] -> EGL EGLContext
+eglCreateContextWithShareContext :: EGLDisplay -> EGLConfig -> EGLContext -> [(EGLContextAttr, Int)] -> EGL EGLContext
 eglCreateContextWithShareContext display config shared_cxt attrs =
-  withArray (const [0x3038] attrs) $ \attrib_list ->
+  withAttrList attrs $ \attrib_list ->
     checkPtr (c_eglCreateContext display config shared_cxt attrib_list)
 
 eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLError
@@ -307,7 +355,13 @@ eglGetCurrentSurface readdraw =
 eglGetCurrentDisplay :: EGL EGLDisplay
 eglGetCurrentDisplay = checkPtr c_eglGetCurrentDisplay
 
-eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> EGL EGLint
+-- EGL_CONFIG_ID, EGL_CONTEXT_CLIENT_TYPE, EGL_CONTEXT_CLIENT_VERSION, EGL_RENDER_BUFFER
+eglConfigID d c = eglQueryContext d c 0x3028
+eglContextClientType d c = eglQueryContext d c 0x3097
+eglContextClientVersion d c = eglQueryContext d c 0x3098
+eglRenderBuffer d c = eglQueryContext d c 0x3086
+
+eglQueryContext :: EGLDisplay -> EGLContext -> Int -> EGL Int
 eglQueryContext display context attribute = alloca $ \value ->
   checkBool (c_eglQueryContext display context attribute value) (peek value)
 
@@ -318,8 +372,9 @@ eglWaitClient = toEglErr c_eglWaitClient
 -- eglWaitGL :: IO EGLError
 -- eglWaitGL = toEglErr c_eglWaitGL
 
-eglWaitNative :: EGLint -> IO EGLError
-eglWaitNative engine = toEglErr (c_eglWaitNative engine)
+data EGLWaitEngine = EGLCoreNativeEngine
+eglWaitNative :: EGLWaitEngine -> IO EGLError
+eglWaitNative engine = toEglErr (c_eglWaitNative 0x305B)
 
 -- * Posting the Color Buffer
 eglSwapBuffers :: EGLDisplay -> EGLSurface -> IO EGLError
@@ -335,13 +390,15 @@ eglSwapInterval display interval =
   toEglErr (c_eglSwapInterval display interval)
 
 -- * Render to Textures
-eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLError
+-- EGL_RENDER_BUFFER value 0x3084 | 0x3085
+data EGLBuffer = EGLBackBuffer | EGLSingleBuffer deriving Eq
+eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLBuffer -> IO EGLError
 eglBindTexImage display surface buffer =
-  toEglErr (c_eglBindTexImage display surface (buffer))
+  toEglErr (c_eglBindTexImage display surface (if buffer == EGLBackBuffer then 0x3084 else 0x3085))
 
-eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLError
+eglReleaseTexImage :: EGLDisplay -> EGLSurface -> EGLBuffer -> IO EGLError
 eglReleaseTexImage display surface buffer =
-  toEglErr (c_eglReleaseTexImage display surface (buffer))
+  toEglErr (c_eglReleaseTexImage display surface (if buffer == EGLBackBuffer then 0x3084 else 0x3085))
 
 -- * Obtain Extension Function Pointers
 eglGetProcAddress :: String -> FunPtr a
