@@ -169,10 +169,12 @@ toEglErr api = api >>= \eglbool ->
   if isTrue eglbool then return EGLSuccess else eglGetError
 -- falsy -> Left EGLError, good -> Right result
 checkErr api cond f = api >>= \result ->
-  if cond result then f result
-  else Left <$> eglGetError
+  if cond result then f result else Left <$> eglGetError
+checkPtr api = api >>= \ptr ->
+  if ptr /= nullPtr then return (Right ptr) else Left <$> eglGetError
+checkBool api f = api >>= \bool ->
+  if isTrue bool then Right <$> f else Left <$> eglGetError
 isTrue = (/= 0)
-notNull = (/= nullPtr)
 
 -- * Initialization & Terminating
 eglGetDefaultDisplay :: IO EGLDisplay
@@ -183,8 +185,7 @@ eglGetDisplay = c_eglGetDisplay . getNativeDisplay
 
 eglInitialize :: EGLDisplay -> EGL (Int, Int) -- ^ EGL (major, minor) version
 eglInitialize display = alloca $ \major -> alloca $ \minor ->
-  checkErr (c_eglInitialize display major minor) isTrue $ \_ ->
-    Right <$> ((,) <$> peek major <*> peek minor)
+  checkBool (c_eglInitialize display major minor) ((,) <$> peek major <*> peek minor)
 
 eglTerminate :: EGLDisplay -> IO EGLError
 eglTerminate display = toEglErr $ c_eglTerminate display
@@ -196,7 +197,7 @@ eglClientAPIs display = words <$> (c_eglQueryString display 0x308D >>= peekCStri
 
 eglQueryString :: EGLDisplay -> Int -> EGL String
 eglQueryString display name =
-  checkErr (c_eglQueryString display name) notNull (\str -> Right <$> peekCString str)
+  checkErr (c_eglQueryString display name) (/= nullPtr) (\str -> Right <$> peekCString str)
 
 eglReleaseThread :: IO EGLError
 eglReleaseThread = toEglErr c_eglReleaseThread
@@ -207,39 +208,35 @@ eglGetConfigs display = alloca $ \num_config ->
   checkErr (c_eglGetConfigs display nullPtr 0 num_config) isTrue $ \_ -> do
     n <- peek num_config
     allocaArray n $ \configs ->
-      checkErr (c_eglGetConfigs display configs n num_config) isTrue $ \_ ->
-        Right <$> peekArray n configs
+      checkBool (c_eglGetConfigs display configs n num_config) (peekArray n configs)
 
 -- XXX EGLConfAttr
 eglChooseConfig :: EGLDisplay -> [EGLAttrib] -> EGL [EGLConfig]
-eglChooseConfig display attrs = withArray (const [0x3038] attrs) $ \attrib_list -> alloca $ \num_config -> do
-  success <- c_eglChooseConfig display attrib_list nullPtr 0 num_config
-  if success == 0 then Left <$> eglGetError else do
+eglChooseConfig display attrs = withArray (const [0x3038] attrs) $ \attrib_list -> alloca $ \num_config ->
+  checkErr (c_eglChooseConfig display attrib_list nullPtr 0 num_config) isTrue $ \_ -> do
     n <- peek num_config
-    allocaArray n $ \configs -> do
-      success <- c_eglChooseConfig display attrib_list configs n num_config
-      if success == 0 then Left <$> eglGetError else do
-        Right <$> peekArray n configs
+    allocaArray n $ \configs ->
+      checkBool (c_eglChooseConfig display attrib_list configs n num_config) (peekArray n configs)
 
 eglGetConfigAttrib :: EGLDisplay -> EGLConfig -> EGLint -> EGL Int
-eglGetConfigAttrib display config attribute = alloca $ \value -> do
-  checkErr (c_eglGetConfigAttrib display config attribute value) isTrue (\_ -> Right <$> peek value)
+eglGetConfigAttrib display config attribute = alloca $ \value ->
+  checkBool (c_eglGetConfigAttrib display config attribute value) (peek value)
 
 -- * Rendering Surfaces
 eglCreateWindowSurface :: EGLNativeWindow a => EGLDisplay -> EGLConfig -> a -> [EGLAttrib] -> EGL EGLSurface
 eglCreateWindowSurface display config win attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreateWindowSurface display config (getNativeWindow win) attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreateWindowSurface display config (getNativeWindow win) attrib_list)
 
 eglCreatePbufferSurface :: EGLDisplay -> EGLConfig -> [EGLAttrib] -> EGL EGLSurface
 eglCreatePbufferSurface display config attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreatePbufferSurface display config attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreatePbufferSurface display config attrib_list)
 
 eglCreatePbufferFromClientBuffer :: EGLDisplay -> EGLenum -> EGLClientBuffer -> EGLConfig -> [EGLAttrib] -> EGL EGLSurface
 eglCreatePbufferFromClientBuffer display buftype buffer config attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreatePbufferFromClientBuffer display buftype buffer config attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreatePbufferFromClientBuffer display buftype buffer config attrib_list)
 
 eglDestroySurface :: EGLDisplay -> EGLSurface -> IO EGLError
 eglDestroySurface display surface = toEglErr (c_eglDestroySurface display surface)
@@ -247,7 +244,7 @@ eglDestroySurface display surface = toEglErr (c_eglDestroySurface display surfac
 eglCreatePixmapSurface :: EGLNativePixmap a => EGLDisplay -> EGLConfig -> a ->  [EGLAttrib] -> EGL EGLSurface
 eglCreatePixmapSurface display config pixmap attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreatePixmapSurface display config (getNativePixmap pixmap) attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreatePixmapSurface display config (getNativePixmap pixmap) attrib_list)
 
 eglSurfaceAttrib :: EGLDisplay -> EGLSurface -> EGLint -> Int -> IO EGLError
 eglSurfaceAttrib display surface attribute value =
@@ -255,7 +252,7 @@ eglSurfaceAttrib display surface attribute value =
 
 eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> EGL Int
 eglQuerySurface display surface attribute = alloca $ \value ->
-  checkErr (c_eglQuerySurface display surface attribute value) isTrue (\_ -> Right <$> peek value)
+  checkBool (c_eglQuerySurface display surface attribute value) (peek value)
 
 -- * Rendering Contexts
 -- 0x30A0 | 0x30A1 | 0x30A2 | 0x3038
@@ -280,12 +277,12 @@ eglQueryAPI = toEnum <$> c_eglQueryAPI
 eglCreateContext :: EGLDisplay -> EGLConfig -> [EGLint] -> EGL EGLContext
 eglCreateContext display config attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreateContext display config nullPtr attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreateContext display config nullPtr attrib_list)
 
 eglCreateContextWithShareContext :: EGLDisplay -> EGLConfig -> EGLContext -> [EGLint] -> EGL EGLContext
 eglCreateContextWithShareContext display config shared_cxt attrs =
   withArray (const [0x3038] attrs) $ \attrib_list ->
-    checkErr (c_eglCreateContext display config shared_cxt attrib_list) notNull (return . Right)
+    checkPtr (c_eglCreateContext display config shared_cxt attrib_list)
 
 eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLError
 eglDestroyContext display context =
@@ -299,22 +296,20 @@ eglReleaseCurrent :: EGLDisplay -> IO EGLError
 eglReleaseCurrent display = toEglErr (c_eglMakeCurrent display nullPtr nullPtr nullPtr)
 
 eglGetCurrentContext :: EGL EGLContext
-eglGetCurrentContext =
-  checkErr c_eglGetCurrentContext notNull (return . Right)
+eglGetCurrentContext = checkPtr c_eglGetCurrentContext
 
 data EGLReadDraw = EGLRead | EGLDraw deriving Eq
 eglGetCurrentSurface :: EGLReadDraw -> EGL EGLSurface
 eglGetCurrentSurface readdraw =
-  checkErr (c_eglGetCurrentSurface rd) notNull (return . Right)
-  where rd = if readdraw == EGLDraw then 0x3059 else 0x305A
+  checkPtr $ c_eglGetCurrentSurface $
+    if readdraw == EGLDraw then 0x3059 else 0x305A
 
 eglGetCurrentDisplay :: EGL EGLDisplay
-eglGetCurrentDisplay =
-  checkErr c_eglGetCurrentDisplay notNull (return . Right)
+eglGetCurrentDisplay = checkPtr c_eglGetCurrentDisplay
 
 eglQueryContext :: EGLDisplay -> EGLContext -> EGLint -> EGL EGLint
 eglQueryContext display context attribute = alloca $ \value ->
-  checkErr (c_eglQueryContext display context attribute value) isTrue (\_ -> Right <$> peek value)
+  checkBool (c_eglQueryContext display context attribute value) (peek value)
 
 -- * Synchronization Primitives
 eglWaitClient :: IO EGLError
