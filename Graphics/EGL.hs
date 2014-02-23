@@ -2,7 +2,7 @@
 -- http://www.khronos.org/files/egl-1-4-quick-reference-card.pdf
 module Graphics.EGL where
 import Control.Applicative
-import Data.Word
+-- import Data.Word
 import Foreign.C.String
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Marshal.Array
@@ -27,8 +27,8 @@ class EGLNativeDisplay a where getNativeDisplay :: a -> EGLNativeDisplayType
 type EGLint = Int
 
 -- from EGL/egl.h
-type EGLBoolean = Word32
-type EGLenum = Word32
+type EGLBoolean = Int -- actually, Word32
+type EGLenum = Int -- actually, Word32
 type EGLConfig = Ptr ()
 type EGLContext = Ptr ()
 type EGLDisplay = Ptr ()
@@ -116,6 +116,7 @@ eglGetError = c_eglGetError >>= return . toEnum . (-) 0x3000
 
 -- * Attribute Lists
 -- 0x3020-0x3042 (Reserved 0x3041-0x304F for additional config attributes)
+-- TODO [(Attr, Int)] or [GADT], eglTrue, eglFalse
 data EGLAttrib =
     EGLBufferSize EGLint
   | EGLAlphaSize EGLint
@@ -251,24 +252,55 @@ eglCreatePixmapSurface display config pixmap attrs =
 --eglQuerySurface :: EGLDisplay -> EGLSurface -> EGLint -> EGL EGLint
 
 -- * Rendering Contexts
-data EGLBindAPIValue = EGLOpenGLAPI | EGLOpenGLESAPI | EGLOpenVGAPI | EGLAPINone
+-- 0x30A0 | 0x30A1 | 0x30A2 | 0x3038
+data EGLBindAPIValue = EGLOpenGLESAPI | EGLOpenVGAPI | EGLOpenGLAPI | EGLAPINone
   deriving (Eq, Show)
---eglBindAPI :: EGLBindAPIValue -> IO Bool
---eglQueryAPI :: IO EGLBindAPIValue
---eglCreateContext :: EGLDisplay -> EGLConfig -> EGLContext -> [EGLint] -> EGL EGLContext
---eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLError
+instance Enum EGLBindAPIValue where
+  fromEnum EGLOpenGLESAPI = 0x30A0
+  fromEnum EGLOpenVGAPI = 0x30A1
+  fromEnum EGLOpenGLAPI = 0x30A2
+  fromEnum EGLAPINone = 0x3038
+  toEnum 0x30A0 = EGLOpenGLESAPI
+  toEnum 0x30A1 = EGLOpenVGAPI
+  toEnum 0x30A2 = EGLOpenGLAPI
+  toEnum _ = EGLAPINone
+
+eglBindAPI :: EGLBindAPIValue -> IO EGLError
+eglBindAPI value = toEglErr (c_eglBindAPI (fromEnum value))
+
+eglQueryAPI :: IO EGLBindAPIValue
+eglQueryAPI = toEnum <$> c_eglQueryAPI
+
+eglCreateContext :: EGLDisplay -> EGLConfig -> [EGLint] -> EGL EGLContext
+eglCreateContext display config attrs =
+  withArray (const [0x3038] attrs) $ \attrib_list ->
+    checkErr (c_eglCreateContext display config nullPtr attrib_list) notNull (return . Right)
+
+eglCreateContextWithShareContext :: EGLDisplay -> EGLConfig -> EGLContext -> [EGLint] -> EGL EGLContext
+eglCreateContextWithShareContext display config shared_cxt attrs =
+  withArray (const [0x3038] attrs) $ \attrib_list ->
+    checkErr (c_eglCreateContext display config shared_cxt attrib_list) notNull (return . Right)
+
+eglDestroyContext :: EGLDisplay -> EGLContext -> IO EGLError
+eglDestroyContext display context =
+  toEglErr(c_eglDestroyContext display context)
 
 eglMakeCurrent :: EGLDisplay -> EGLSurface -> EGLSurface -> EGLContext -> IO EGLError
 eglMakeCurrent display draw read context =
   toEglErr (c_eglMakeCurrent display draw read context)
 
+eglReleaseCurrent :: EGLDisplay -> IO EGLError
+eglReleaseCurrent display = toEglErr (c_eglMakeCurrent display nullPtr nullPtr nullPtr)
+
 eglGetCurrentContext :: EGL EGLContext
 eglGetCurrentContext =
   checkErr c_eglGetCurrentContext notNull (return . Right)
 
-eglGetCurrentSurface :: EGLint -> EGL EGLSurface
+data EGLReadDraw = EGLRead | EGLDraw deriving Eq
+eglGetCurrentSurface :: EGLReadDraw -> EGL EGLSurface
 eglGetCurrentSurface readdraw =
-  checkErr (c_eglGetCurrentSurface readdraw) notNull (return . Right)
+  checkErr (c_eglGetCurrentSurface rd) notNull (return . Right)
+  where rd = if readdraw == EGLDraw then 0x3059 else 0x305A
 
 eglGetCurrentDisplay :: EGL EGLDisplay
 eglGetCurrentDisplay =
@@ -299,7 +331,7 @@ eglCopyBuffers display surface pixmap =
 
 eglSwapInterval :: EGLDisplay -> Int -> IO EGLError
 eglSwapInterval display interval =
-  toEglErr (c_eglSwapInterval display (unsafeCoerce interval))
+  toEglErr (c_eglSwapInterval display interval)
 
 -- * Render to Textures
 eglBindTexImage :: EGLDisplay -> EGLSurface -> EGLint -> IO EGLError
@@ -316,3 +348,5 @@ eglGetProcAddress procname =
   unsafePerformIO $ withCString procname (unsafeCoerce . c_eglGetProcAddress)
 
 -- * Extending EGL
+
+-- init, term
