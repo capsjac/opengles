@@ -387,6 +387,11 @@ termGL = do
     eglTerminate disp
     ) disp
 
+swapCurrentBuffers = do
+  disp <- eglGetCurrentDisplay
+  surf <- eglGetCurrentSurface EGLDraw
+  either return (\disp -> either return (\surf -> eglSwapBuffers disp surf) surf) disp
+
 -- * Types
 -- from EGL/eglplatform.h
 -- ** Window-system-dependent types
