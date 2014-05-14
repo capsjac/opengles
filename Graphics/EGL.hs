@@ -473,17 +473,6 @@ withCurrent f g = do
         either f (\s->
           g d c r s) draw) read) cont) disp
 
-withCurrent f g = do
-  disp <- eglGetCurrentDisplay
-  cont <- eglGetCurrentContext
-  read <- eglGetCurrentSurface EGLRead
-  draw <- eglGetCurrentSurface EGLDraw
-  either f (\d->
-    either f (\c->
-      either f (\r->
-        either f (\s->
-          g d c r s) draw) read) cont) disp
-
 -- * Types
 -- from EGL/eglplatform.h
 -- ** Window-system-dependent types
