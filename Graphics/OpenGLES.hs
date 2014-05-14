@@ -7,6 +7,8 @@
 -- http://code.google.com/p/angleproject/
 
 module Graphics.OpenGLES where
+import Control.Applicative
+import Data.Bits
 import Foreign.C.String
 import Foreign.C.Types
 import Foreign.Marshal.Alloc (alloca)
@@ -281,3 +283,148 @@ GL_PROC(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> 
 GL_PROC(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> IO ())
+
+-- | EnableCap
+data OpenGLCapability =
+	  Texture2D
+	| CullFace
+	| Blend
+	| Dither
+	| StencilTest
+	| DepthTest
+	| ScissorTest
+	| PolygonOffsetFill
+	| SampleAlphaToCoverage
+	| SampleCoverage
+
+instance Enum OpenGLCapability where
+	fromEnum x = case x of
+		Texture2D             -> 0x0DE1
+		CullFace              -> 0x0B44
+		Blend                 -> 0x0BE2
+		Dither                -> 0x0BD0
+		StencilTest           -> 0x0B90
+		DepthTest             -> 0x0B71
+		ScissorTest           -> 0x0C11
+		PolygonOffsetFill     -> 0x8037
+		SampleAlphaToCoverage -> 0x809E
+		SampleCoverage        -> 0x80A0
+	toEnum = undefined
+
+enable :: OpenGLCapability -> IO ()
+enable = glEnable . toGLEnum
+
+disable :: OpenGLCapability -> IO ()
+disable = glDisable . toGLEnum
+
+isEnabled :: OpenGLCapability -> IO Bool
+isEnabled = liftA (1 ==) . glIsEnabled . toGLEnum
+
+toGLEnum :: (Enum a) => a -> GLenum
+toGLEnum = fromIntegral . fromEnum
+
+--enable GL_SAMPLE_COVERAGE
+--disable GL_DITHER Dither
+--isEnabled GL_CULL_FACE
+
+-- | glClear
+clearBuffer :: Bool -- ^ Clear color buffer
+            -> Bool -- ^ Clear depth buffer
+            -> Bool -- ^ Clear stencil buffer
+            -> IO ()
+clearBuffer c d s = glClear $ (if d then 0x100 else 0)
+  .|. (if s then 0x400 else 0) .|. (if c then 0x4000 else 0)
+
+getGLVendor = glGetString 0x1F00 >>= peekCString
+getGLRenderer = glGetString 0x1F01 >>= peekCString
+getGLVersion = glGetString 0x1F02 >>= peekCString
+getGLExtensions = words <$> (glGetString 0x1F03 >>= peekCString)
+getGLShadingLanguageVersion = glGetString 0x8B8C >>= peekCString
+
+data CullFaceMode = Front | Back | FrontAndBack
+instance Enum CullFaceMode where
+	fromEnum Front        = 0x0404
+	fromEnum Back         = 0x0405
+	fromEnum FrontAndBack = 0x0408
+	toEnum = undefined
+
+stencilMaskSeparate face mask = glStencilMaskSeparate (toGLEnum face) mask
+
+data HintTarget = GenerateMipmapHint
+data HintMode = DontCare | Fastest | Nicest
+instance Enum HintTarget where
+	fromEnum GenerateMipmapHint = 0x8192
+	toEnum = undefined
+instance Enum HintMode where
+	fromEnum DontCare = 0x1100
+	fromEnum Fastest  = 0x1101
+	fromEnum Nicest   = 0x1102
+	toEnum = undefined
+
+hint target hintmode = glHint (toGLEnum target) (toGLEnum hintmode) 
+
+data StencilFunction =
+	Never | Less | Equal | LEqual | Greater | NotEqual | GEqual | Always
+instance Enum StencilFunction where
+	fromEnum x = case x of
+		Never    -> 0x0200
+		Less     -> 0x0201
+		Equal    -> 0x0202
+		LEqual   -> 0x0203
+		Greater  -> 0x0204
+		NotEqual -> 0x0205
+		GEqual   -> 0x0206
+		Always   -> 0x0207
+	toEnum = undefined
+
+depthFunc :: StencilFunction -> IO ()
+depthFunc = glDepthFunc . toGLEnum
+
+data StencilOp =
+	  StencilOpZero | StencilOpKeep | StencilOpReplace | StencilOpIncr
+	| StencilOpDecr | StencilOpInvert | StencilOpIncrWrap | StencilOpDecrWrap
+instance Enum StencilOp where
+	fromEnum x = case x of
+		StencilOpZero     -> 0x0000
+		StencilOpKeep     -> 0x1E00
+		StencilOpReplace  -> 0x1E01
+		StencilOpIncr     -> 0x1E02
+		StencilOpDecr     -> 0x1E03
+		StencilOpInvert   -> 0x150A
+		StencilOpIncrWrap -> 0x8507
+		StencilOpDecrWrap -> 0x8508
+	toEnum = undefined
+
+stencilOp :: StencilOp -> StencilOp -> StencilOp -> IO ()
+stencilOp sfail dpfail dppass =
+	glStencilOp (toGLEnum sfail) (toGLEnum dpfail) (toGLEnum dppass)
+
+stencilOpSeparate :: CullFaceMode -> StencilOp -> StencilOp -> StencilOp -> IO ()
+stencilOpSeparate face sfail dpfail dppass =
+	glStencilOpSeparate (toGLEnum face) (toGLEnum sfail)
+	                    (toGLEnum dpfail) (toGLEnum dppass)
+
+data FrontFaceDirection = CW | CCW
+frontFace CW = glFrontFace 0x0900
+frontFace CCW = glFrontFace 0x0901
+
+cullFace :: CullFaceMode -> IO ()
+cullFace = glCullFace . toGLEnum
+
+data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
+             | OutOfMemory | InvalidFrameBufferOperation
+instance Enum GLError where
+	fromEnum = undefined
+	toEnum x = case x of
+		0x0000 -> NoError
+		0x0500 -> InvalidEnum
+		0x0501 -> InvalidValue
+		0x0502 -> InvalidOperation
+		0x0505 -> OutOfMemory
+		0x0506 -> InvalidFrameBufferOperation
+
+getError :: IO GLError
+getError = toEnum . fromIntegral <$> glGetError
+
+
+

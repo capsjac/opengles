@@ -17,9 +17,9 @@ extra-source-files:
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Graphics.EGL, Graphics.OpenGLES, Graphics.OpenGLES.Types
+  exposed-modules:     Graphics.EGL
   -- other-modules:       
-  other-extensions:    ForeignFunctionInterface, CPP
+  other-extensions:    ForeignFunctionInterface
   build-depends:       base >=4.6 && <5
   -- hs-source-dirs:      
   include-dirs: include
