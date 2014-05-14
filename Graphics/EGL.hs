@@ -3,6 +3,7 @@
 -- <http://www.khronos.org/files/egl-1-4-quick-reference-card.pdf>
 module Graphics.EGL where
 import Control.Applicative
+import Data.IORef
 import Foreign.C.String
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Marshal.Array
@@ -126,6 +127,12 @@ egl_transparent_rgb = 0x3052 :: Int
 -- | EGL_COLOR_BUFFER_TYPE value 0x308E | 0x308F
 egl_rgb_buffer = 0x308E :: Int
 egl_luminance_buffer = 0x308F :: Int
+
+-- | EGL_RENDERABLE_TYPE bitmask
+egl_opengl_es_bit = 1 :: Int
+egl_openvg_bit = 2 :: Int
+egl_opengl_es2_bit = 4 :: Int
+egl_opengl_bit = 8 :: Int
 
 data EGLSurfAttr =
       EGLVGAlphaFormat -- enum Alpha format for OpenVG
@@ -366,17 +373,38 @@ eglGetProcAddress procname =
   unsafePerformIO $ withCString procname c_eglGetProcAddress
 
 -- * Extending EGL
+{-
+-- * Helper functions
+-- | Validate the current internal state.
+-- may return EGL_BAD_CONTEXT, EGL_BAD_SURFACE, EGL_BAD_NATIVE_WINDOW,
+-- EGL_BAD_CURRENT_SURFACE, EGL_CONTEXT_LOST, EGL_BAD_DISPLAY,
+-- EGL_NOT_INITIALIZED
+testEGL :: IO EGLError
+testEGL = do
+  disp <- c_eglGetCurrentDisplay
+  cont <- c_eglGetCurrentContext
+  draw <- c_eglGetCurrentSurface EGLDraw
+  toEglErr (c_eglMakeCurrent disp draw draw cont)
+data EGLState a = EGLState (Maybe a) EGLConfig [(EGLSurfAttr, Int)]
+eglState = unsafePerformIO $ newIORef (EGLState Nothing) (EGLConfig nullPtr) []
 
--- * Simple Utility
-initGL win = do
+-- | Initialize an EGL Context for OpenGL ES 2.0 (eglGetDefaultDisplay - eglMakeCurrent) 
+initEGL :: EGLNativeWindow a => a -> [(EGLConfAttr, Int)]
+  -> [(EGLSurfAttr, Int)] -> IO EGLError
+initEGL win confAttrs surfAttrs = do
   disp <- eglGetDefaultDisplay
   Right (major, minor) <- eglInitialize disp
-  Right (config : _) <- eglChooseConfig disp []
-  Right cont <- eglCreateContext disp config [(EGLContextClientVersion, 2)] -- gl es 2.0+
-  Right surf <- eglCreateWindowSurface disp config win []
+  Right (config : _) <- eglChooseConfig disp
+    ((EGLRenderableType, egl_opengl_es2_bit) : confAttrs)
+  -- Request OpenGL ES 2.0+
+  Right cont <- eglCreateContext disp config [(EGLContextClientVersion, 2)]
+  Right surf <- eglCreateWindowSurface disp config win surfAttrs
   eglMakeCurrent disp surf surf cont
+  writeIORef eglState $ EGLState win config surfAttrs
 
-termGL = do
+-- | Tear down the EGL context in use (eglMakeCurrent - eglTerminate)
+termEGL :: IO EGLError
+termEGL = do
   disp <- eglGetCurrentDisplay
   cont <- eglGetCurrentContext
   surf <- eglGetCurrentSurface EGLDraw
@@ -387,11 +415,53 @@ termGL = do
     eglTerminate disp
     ) disp
 
+-- | Short hand for eglSwapBuffers
+swapCurrentBuffers :: IO EGLError
 swapCurrentBuffers = do
   disp <- eglGetCurrentDisplay
   surf <- eglGetCurrentSurface EGLDraw
-  either return (\disp -> either return (\surf -> eglSwapBuffers disp surf) surf) disp
+  err <- either return (\disp -> either return (\surf -> eglSwapBuffers disp surf) surf) disp
+  case err of
+    EGLSuccess -> return EGLSuccess
+    -- still consider context is valid
+    EGLBadSurface -> initEGLSurface >> return EGLSuccess where
+      initEGLSurface = do
+        EGLState win config surfAttrs <- readIORef eglState
+        read <- eglGetCurrentSurface EGLRead
+        Right surf <- eglCreateWindowSurface disp config win surfAttrs
+        Right cont <- eglGetCurrentContext
+        eglMakeCurrent disp surf (either (const surf) id read) cont
+    -- EGLBadContext | EGLContextLost
+    _ -> termEGL >> initEGL win >> return err
 
+-- | Destroy current draw surface
+suspendEGL :: IO EGLError
+suspendEGL = do
+  disp <- eglGetCurrentDisplay
+  surf <- eglGetCurrentSurface EGLDraw
+  either return (\disp -> either return (eglDestroySurface disp) surf) disp
+
+resumeEGL :: EGLNativeWindow => a -> IO EGLError
+resumeEGL win = do
+  err <- eglGetCurrentContext
+  err' <- case err of
+    Left _ -> initEGL win
+    Right _ -> initEGLSurface where
+      initEGLSurface = do
+        Right (config : _) <- eglChooseConfig disp [(EGLRenderableType, egl_opengl_es2_bit)]
+        Right cont <- eglGetCurrentContext
+        Right surf <- eglCreateWindowSurface disp config win []
+        eglMakeCurrent disp surf surf cont 
+  case err' of
+    EGLSuccess -> return ()
+    --EGLContextLost -> initEGLContext
+    _ -> termEGL >> initEGL win
+  return err'
+-}
+withCurrent :: (EGLError -> IO a) -- ^ Error handler
+   -> (EGLDisplay -> EGLContext -> EGLSurface -> EGLSurface -> IO a)
+   -- ^ Current Display in use -> Current Context -> Current Read Surface -> Current Draw Surface
+   -> IO a
 withCurrent f g = do
   disp <- eglGetCurrentDisplay
   cont <- eglGetCurrentContext
