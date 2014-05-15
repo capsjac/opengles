@@ -401,7 +401,7 @@ data StencilOp =
 	  OpZero | OpKeep | OpReplace | OpIncr
 	| OpDecr | OpInvert | OpIncrWrap | OpDecrWrap
 
-instance Marshal Op where
+instance Marshal StencilOp where
 	marshal x = case x of
 		OpZero     -> 0x0000
 		OpKeep     -> 0x1E00
@@ -448,13 +448,111 @@ instance ServerObject Buffer where
 	deleteObjects xs = withArray (map unBuffer xs) $ \arr ->
 		glDeleteBuffers (fromIntegral $ length xs) arr
 
-data BufferTarget = ArrayBuffer | ElementArrayBuffer
+data BufferTarget = ArrayBuffer
+                  | ElementArrayBuffer
+                  | PixelPackBuffer -- ^ ES 3.0
+                  | PixelUnpackBuffer -- ^ ES 3.0
+                  | CopyReadBuffer -- ^ ES 3.0
+                  | CopyWriteBuffer -- ^ ES 3.0
+-- | ES 3.0
+data BufferTarget' = TransformFeedbackBuffer | UniformBuffer
 
 instance BindTarget	Buffer BufferTarget
-
+instance BindTarget	Buffer BufferTarget'
 instance Marshal BufferTarget where
-	marshal ArrayBuffer = 0x8892
-	marshal ElementArrayBuffer = 0x8893
+	marshal x = case x of
+		ArrayBuffer -> 0x8892
+		ElementArrayBuffer -> 0x8893
+		PixelPackBuffer -> 0x88EB
+		PixelUnpackBuffer -> 0x88EC
+		CopyReadBuffer -> 0x8F36
+		CopyWriteBuffer -> 0x8F37
+instance Marshal BufferTarget' where
+	marshal TransformFeedbackBuffer = 0x8C8E
+	marshal UniformBuffer = 0x8A11
+
+
+data Framebuffer = FramebufferObj { unFramebuffer :: GLuint }
+
+instance ServerObject Framebuffer where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenFramebuffers (fromIntegral n) arr
+		map FramebufferObj <$> peekArray n arr
+	bindObject target (FramebufferObj x) =
+		glBindFramebuffer (marshal target) x
+	isObject (FramebufferObj x) =
+		return . (== 1) =<< glIsFramebuffer x
+	deleteObjects xs = withArray (map unFramebuffer xs) $ \arr ->
+		glDeleteFramebuffers (fromIntegral $ length xs) arr
+
+data FramebufferTarget = Framebuffer
+data FramebufferTarget' = Framebuffer'
+                        | DrawFramebuffer -- ^ ES 3.0
+                        | ReadFramebuffer -- ^ ES 3.0
+instance BindTarget	Framebuffer FramebufferTarget
+instance Marshal FramebufferTarget where
+	marshal Framebuffer = 0x8D40
+
+
+data Renderbuffer = RenderbufferObj { unRenderbuffer :: GLuint }
+
+instance ServerObject Renderbuffer where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenRenderbuffers (fromIntegral n) arr
+		map RenderbufferObj <$> peekArray n arr
+	bindObject target (RenderbufferObj x) =
+		glBindRenderbuffer (marshal target) x
+	isObject (RenderbufferObj x) =
+		return . (== 1) =<< glIsRenderbuffer x
+	deleteObjects xs = withArray (map unRenderbuffer xs) $ \arr ->
+		glDeleteRenderbuffers (fromIntegral $ length xs) arr
+
+data RenderbufferTarget = Renderbuffer
+instance BindTarget	Renderbuffer RenderbufferTarget
+instance Marshal RenderbufferTarget where
+	marshal Renderbuffer = 0x8D40
+
+
+-- | ES 3.0
+data Query = QueryObj { unQuery :: GLuint }
+
+instance ServerObject Query where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenQueries (fromIntegral n) arr
+		map QueryObj <$> peekArray n arr
+	bindObject _ _ = fail "bindObject for a Query does not exist."
+	isObject (QueryObj x) = return . (== 1) =<< glIsQuery x
+	deleteObjects xs = withArray (map unQuery xs) $ \arr ->
+		glDeleteQueries (fromIntegral $ length xs) arr
+
+-- | ES 3.0
+data QueryTarget = AnySamplesPassed | AnySamplesPassedConservative
+instance BindTarget	Query QueryTarget
+instance Marshal QueryTarget where
+	marshal AnySamplesPassed = 0x8C2F
+	marshal AnySamplesPassedConservative = 0x8D6A
+
+
+-- | ES 3.0
+data TransformFeedback = TransformFeedbackObj { unTransformFeedback :: GLuint }
+
+instance ServerObject TransformFeedback where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenTransformFeedbacks (fromIntegral n) arr
+		map TransformFeedbackObj <$> peekArray n arr
+	bindObject target (TransformFeedbackObj x) =
+		glBindTransformFeedback (marshal target) x
+	isObject (TransformFeedbackObj x) =
+		return . (== 1) =<< glIsTransformFeedback x
+	deleteObjects xs = withArray (map unTransformFeedback xs) $ \arr ->
+		glDeleteTransformFeedbacks (fromIntegral $ length xs) arr
+
+-- | ES 3.0
+data TransformFeedbackTarget = TransformFeedback
+instance BindTarget	TransformFeedback TransformFeedbackTarget
+instance Marshal TransformFeedbackTarget where
+	marshal TransformFeedback = 0x8E22
+
 {-
 Buffer: {ELEMENT_}ARRAY_BUFFER
 
@@ -501,4 +599,4 @@ TexParameter{i,f}{,v},GenerateMipmap:
 	TEXTURE_{2D, 3D}, TEXTURE_2D_ARRAY, TEXTURE_CUBE_MAP
 
 3.0 TEXTURE_3D, TEXTURE_2D_ARRAY
-}
+-}
