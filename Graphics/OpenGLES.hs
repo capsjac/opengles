@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 -- | OpenGL ES (ES for Embed Systems) 2.0
 -- <http://www.khronos.org/opengles/sdk/docs/reference_cards/OpenGL-ES-2_0-Reference-card.pdf>
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
@@ -8,7 +9,7 @@
 
 module Graphics.OpenGLES where
 import Control.Applicative
-import Data.Bits
+import Data.Bits ((.|.))
 import Foreign.C.String
 import Foreign.C.Types
 import Foreign.Marshal.Alloc (alloca)
@@ -285,6 +286,21 @@ GL_PROC(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO 
 GL_PROC(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> IO ())
 
+-- ** Errors
+data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
+             | OutOfMemory | InvalidFrameBufferOperation
+
+getError :: IO GLError
+getError = unMarshal <$> glGetError
+	where unMarshal x = case x of
+		0x0000 -> NoError
+		0x0500 -> InvalidEnum
+		0x0501 -> InvalidValue
+		0x0502 -> InvalidOperation
+		0x0505 -> OutOfMemory
+		0x0506 -> InvalidFrameBufferOperation
+
+-- ** Buffer Objects
 -- | EnableCap
 data OpenGLCapability =
 	  Texture2D
@@ -297,9 +313,10 @@ data OpenGLCapability =
 	| PolygonOffsetFill
 	| SampleAlphaToCoverage
 	| SampleCoverage
+	| PrimitiveRestartFixedIndex -- ^ ES 3.0
 
-instance Enum OpenGLCapability where
-	fromEnum x = case x of
+instance Marshal OpenGLCapability where
+	marshal x = case x of
 		Texture2D             -> 0x0DE1
 		CullFace              -> 0x0B44
 		Blend                 -> 0x0BE2
@@ -310,19 +327,16 @@ instance Enum OpenGLCapability where
 		PolygonOffsetFill     -> 0x8037
 		SampleAlphaToCoverage -> 0x809E
 		SampleCoverage        -> 0x80A0
-	toEnum = undefined
+		PrimitiveRestartFixedIndex -> 0x8D69
 
 enable :: OpenGLCapability -> IO ()
-enable = glEnable . toGLEnum
+enable = glEnable . marshal
 
 disable :: OpenGLCapability -> IO ()
-disable = glDisable . toGLEnum
+disable = glDisable . marshal
 
 isEnabled :: OpenGLCapability -> IO Bool
-isEnabled = liftA (1 ==) . glIsEnabled . toGLEnum
-
-toGLEnum :: (Enum a) => a -> GLenum
-toGLEnum = fromIntegral . fromEnum
+isEnabled = liftA (/= 0) . glIsEnabled . marshal
 
 -- | glClear
 clearBuffer :: Bool -- ^ Clear color buffer
@@ -339,91 +353,152 @@ getGLExtensions = words <$> (glGetString 0x1F03 >>= peekCString)
 getGLShadingLanguageVersion = glGetString 0x8B8C >>= peekCString
 
 data CullFaceMode = Front | Back | FrontAndBack
-instance Enum CullFaceMode where
-	fromEnum Front        = 0x0404
-	fromEnum Back         = 0x0405
-	fromEnum FrontAndBack = 0x0408
-	toEnum = undefined
+
+instance Marshal CullFaceMode where
+	marshal Front        = 0x0404
+	marshal Back         = 0x0405
+	marshal FrontAndBack = 0x0408
 
 stencilMaskSeparate :: CullFaceMode -> GLuint -> IO ()
-stencilMaskSeparate face mask = glStencilMaskSeparate (toGLEnum face) mask
+stencilMaskSeparate face mask = glStencilMaskSeparate (marshal face) mask
 
 data HintTarget = GenerateMipmapHint
+                | FragmentShaderDerivativeHint -- ^ ES 3.0
+
+instance Marshal HintTarget where
+	marshal GenerateMipmapHint = 0x8192
+	marshal FragmentShaderDerivativeHint = 0x8B8B
+
 data HintMode = DontCare | Fastest | Nicest
-instance Enum HintTarget where
-	fromEnum GenerateMipmapHint = 0x8192
-	toEnum = undefined
-instance Enum HintMode where
-	fromEnum DontCare = 0x1100
-	fromEnum Fastest  = 0x1101
-	fromEnum Nicest   = 0x1102
-	toEnum = undefined
+
+instance Marshal HintMode where
+	marshal DontCare = 0x1100
+	marshal Fastest  = 0x1101
+	marshal Nicest   = 0x1102
 
 hint :: HintTarget -> HintMode -> IO ()
-hint target hintmode = glHint (toGLEnum target) (toGLEnum hintmode) 
+hint target hintmode = glHint (marshal target) (marshal hintmode) 
 
 data StencilFunction =
-	Never | Less | Equal | LEqual | Greater | NotEqual | GEqual | Always
-instance Enum StencilFunction where
-	fromEnum x = case x of
-		Never    -> 0x0200
-		Less     -> 0x0201
-		Equal    -> 0x0202
-		LEqual   -> 0x0203
-		Greater  -> 0x0204
-		NotEqual -> 0x0205
-		GEqual   -> 0x0206
-		Always   -> 0x0207
-	toEnum = undefined
+	  SFNever | SFLess | SFEqual | SFLEqual | SFGreater
+	| SFNotEqual | SFGEqual | SFAlways
+
+instance Marshal StencilFunction where
+	marshal x = case x of
+		SFNever    -> 0x0200
+		SFLess     -> 0x0201
+		SFEqual    -> 0x0202
+		SFLEqual   -> 0x0203
+		SFGreater  -> 0x0204
+		SFNotEqual -> 0x0205
+		SFGEqual   -> 0x0206
+		SFAlways   -> 0x0207
 
 depthFunc :: StencilFunction -> IO ()
-depthFunc = glDepthFunc . toGLEnum
+depthFunc = glDepthFunc . marshal
 
 data StencilOp =
-	  StencilOpZero | StencilOpKeep | StencilOpReplace | StencilOpIncr
-	| StencilOpDecr | StencilOpInvert | StencilOpIncrWrap | StencilOpDecrWrap
-instance Enum StencilOp where
-	fromEnum x = case x of
-		StencilOpZero     -> 0x0000
-		StencilOpKeep     -> 0x1E00
-		StencilOpReplace  -> 0x1E01
-		StencilOpIncr     -> 0x1E02
-		StencilOpDecr     -> 0x1E03
-		StencilOpInvert   -> 0x150A
-		StencilOpIncrWrap -> 0x8507
-		StencilOpDecrWrap -> 0x8508
-	toEnum = undefined
+	  OpZero | OpKeep | OpReplace | OpIncr
+	| OpDecr | OpInvert | OpIncrWrap | OpDecrWrap
+
+instance Marshal Op where
+	marshal x = case x of
+		OpZero     -> 0x0000
+		OpKeep     -> 0x1E00
+		OpReplace  -> 0x1E01
+		OpIncr     -> 0x1E02
+		OpDecr     -> 0x1E03
+		OpInvert   -> 0x150A
+		OpIncrWrap -> 0x8507
+		OpDecrWrap -> 0x8508
 
 stencilOp :: StencilOp -> StencilOp -> StencilOp -> IO ()
 stencilOp sfail dpfail dppass =
-	glStencilOp (toGLEnum sfail) (toGLEnum dpfail) (toGLEnum dppass)
+	glStencilOp (marshal sfail) (marshal dpfail) (marshal dppass)
 
 stencilOpSeparate :: CullFaceMode -> StencilOp -> StencilOp -> StencilOp -> IO ()
 stencilOpSeparate face sfail dpfail dppass =
-	glStencilOpSeparate (toGLEnum face) (toGLEnum sfail)
-	                    (toGLEnum dpfail) (toGLEnum dppass)
+	glStencilOpSeparate (marshal face) (marshal sfail)
+	                    (marshal dpfail) (marshal dppass)
 
 data FrontFaceDirection = CW | CCW
 frontFace CW = glFrontFace 0x0900
 frontFace CCW = glFrontFace 0x0901
 
 cullFace :: CullFaceMode -> IO ()
-cullFace = glCullFace . toGLEnum
+cullFace = glCullFace . marshal
 
-data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
-             | OutOfMemory | InvalidFrameBufferOperation
-instance Enum GLError where
-	fromEnum = undefined
-	toEnum x = case x of
-		0x0000 -> NoError
-		0x0500 -> InvalidEnum
-		0x0501 -> InvalidValue
-		0x0502 -> InvalidOperation
-		0x0505 -> OutOfMemory
-		0x0506 -> InvalidFrameBufferOperation
+-- | An abstraction layer for glGen*, glBind*, glIs* and glDelete*
+class ServerObject a where
+	genObjects :: Int -> IO [a]
+	bindObject :: (BindTarget a b) => b -> a -> IO ()
+	isObject :: a -> IO Bool
+	deleteObjects :: [a] -> IO ()
 
-getError :: IO GLError
-getError = toEnum . fromIntegral <$> glGetError
+class (Marshal b) => BindTarget a b
 
+data Buffer = Buffer { unBuffer :: GLuint }
 
+instance ServerObject Buffer where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenBuffers (fromIntegral n) arr
+		map Buffer <$> peekArray n arr
+	bindObject target (Buffer x) = glBindBuffer (marshal target) x
+	isObject (Buffer x) = return . (== 1) =<< glIsBuffer x
+	deleteObjects xs = withArray (map unBuffer xs) $ \arr ->
+		glDeleteBuffers (fromIntegral $ length xs) arr
 
+data BufferTarget = ArrayBuffer | ElementArrayBuffer
+
+instance BindTarget	Buffer BufferTarget
+
+instance Marshal BufferTarget where
+	marshal ArrayBuffer = 0x8892
+	marshal ElementArrayBuffer = 0x8893
+{-
+Buffer: {ELEMENT_}ARRAY_BUFFER
+
+TexImage2D,CopyTexImage2D,CopyTexSubImage2D,CompressedTexImage2D,CompressedTexSubImage2D
+	TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X,Y,Z},TEXTURE_CUBE_MAP_NEGATIVE_{X,Y,Z} 
+TexSubImage2D,
+	TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
+TexParameter{if}v?,GenerateMipmap,GetTexParameter{if}v:
+	TEXTURE_2D, TEXTURE_CUBE_MAP
+BindTexture; *
+
+BindFramebuffer,FramebufferTexture2D,CheckFramebufferStatus,GetFramebufferAttachmentParameteriv:
+	FRAMEBUFFER
+
+BindRenderbuffer,RenderbufferStorage,GetRenderbufferParameteriv:
+	RENDERBUFFER
+
+FramebufferRenderbuffer
+-}
+{-
+Query: ANY_SAMPLES_PASSED{_CONSERVATIVE}
+BindBuffer and rest:
+	{ELEMENT_}ARRAY_BUFFER, PIXEL_{UN}PACK_BUFFER,
+	COPY_{READ, WRITE}_BUFFER,
+	TRANSFORM_FEEDBACK_BUFFER, UNIFORM_BUFFER
+BindBufferRange
+	TRANSFORM_FEEDBACK_BUFFER, UNIFORM_BUFFER
+BindBufferBase
+	TRANSFORM_FEEDBACK_BUFFER, UNIFORM_BUFFER
+
+TransformFeedback: TRANSFORM_FEEDBACK
+Framebuffer: FRAMEBUFFER
+FramebufferRenderbuffer,FramebufferTexture2D,CheckFramebufferStatus,GetFramebufferAttachmentParameteriv:
+	FRAMEBUFFER,{DRAW,READ}_FRAMEBUFFER
+Renderbuffer: RENDERBUFFER
+Texture: *
+TexImage3D,TexStorage3D,TexSubImage3D,CopyTexSubImage3D,CompressedTexImage3D,: 
+	TEXTURE_3D, TEXTURE_2D_ARRAY
+TexStorage2D:
+	TEXTURE_CUBE_MAP, TEXTURE_2D
+TexImage2D,CopyTexImage2D,TexSubImage2D,CopyTexSubImage2D,CompressedTexImage2D,CompressedTexSubImage2D,CompressedTexSubImage3D:
+	TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
+TexParameter{i,f}{,v},GenerateMipmap:
+	TEXTURE_{2D, 3D}, TEXTURE_2D_ARRAY, TEXTURE_CUBE_MAP
+
+3.0 TEXTURE_3D, TEXTURE_2D_ARRAY
+}

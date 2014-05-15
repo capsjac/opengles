@@ -68,3 +68,7 @@ type GLsync = Ptr ()
 
 -- | 16bit half-precision floating-point value encoded in an unsigned scalar
 type GLhalf = CUShort
+
+-- * Utils
+-- | fromEnum alternative
+class Marshal a where marshal :: (Num n) => a -> n
