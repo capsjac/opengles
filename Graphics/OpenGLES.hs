@@ -18,9 +18,8 @@ import Foreign.Storable
 import Graphics.EGL (eglGetProcAddress)
 import Graphics.OpenGLES.Types
 
-
-isGlProcAvailable :: String -> Bool
-isGlProcAvailable name = eglGetProcAddress name /= nullFunPtr
+isGLProcAvailable :: String -> Bool
+isGLProcAvailable name = eglGetProcAddress name /= nullFunPtr
 
 --getopenglversion, dummy call or throwifnull
 
@@ -29,12 +28,14 @@ foreign import ccall unsafe "dynamic" unwrap_/**/_procname :: FunPtr (_typ) -> _
 _procname :: _typ; \
 _procname = unwrap_/**/_procname (eglGetProcAddress "_procname"); 
 
+-- foreign import ccall unsafe "dynamic"
+--   unwrap_glActiveTexture :: FunPtr (GLenum -> IO ()) -> GLenum -> IO ();
+-- glActiveTexture :: GLenum -> IO ();
+-- glActiveTexture = unwrap_glActiveTexture (eglGetProcAddress "glActiveTexture");
+
 -- * OpenGL ES 2.0
 
 GL_PROC(glActiveTexture, GLenum -> IO ())
---c_glActiveTexture :: GLenum -> IO ()
---c_glActiveTexture = _glActiveTexture (eglGetProcAddress "glActiveTexture")
---foreign import ccall "dynamic" _glActiveTexture :: FunPtr (GLenum -> IO ()) -> GLenum -> IO ()
 GL_PROC(glAttachShader, GLuint -> GLuint -> IO ())
 GL_PROC(glBindAttribLocation, GLuint -> GLuint -> CString -> IO ())
 GL_PROC(glBindBuffer, GLenum -> GLuint -> IO ())
@@ -323,10 +324,6 @@ isEnabled = liftA (1 ==) . glIsEnabled . toGLEnum
 toGLEnum :: (Enum a) => a -> GLenum
 toGLEnum = fromIntegral . fromEnum
 
---enable GL_SAMPLE_COVERAGE
---disable GL_DITHER Dither
---isEnabled GL_CULL_FACE
-
 -- | glClear
 clearBuffer :: Bool -- ^ Clear color buffer
             -> Bool -- ^ Clear depth buffer
@@ -348,6 +345,7 @@ instance Enum CullFaceMode where
 	fromEnum FrontAndBack = 0x0408
 	toEnum = undefined
 
+stencilMaskSeparate :: CullFaceMode -> GLuint -> IO ()
 stencilMaskSeparate face mask = glStencilMaskSeparate (toGLEnum face) mask
 
 data HintTarget = GenerateMipmapHint
@@ -361,6 +359,7 @@ instance Enum HintMode where
 	fromEnum Nicest   = 0x1102
 	toEnum = undefined
 
+hint :: HintTarget -> HintMode -> IO ()
 hint target hintmode = glHint (toGLEnum target) (toGLEnum hintmode) 
 
 data StencilFunction =
