@@ -12,12 +12,14 @@ import Control.Applicative
 import Data.Bits ((.|.))
 import Foreign.C.String
 import Foreign.C.Types
-import Foreign.Marshal.Alloc (alloca)
+import Foreign.Marshal.Alloc (alloca, allocaBytes)
 import Foreign.Marshal.Array
+import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 import Graphics.EGL (eglGetProcAddress)
 import Graphics.OpenGLES.Types
+import Unsafe.Coerce
 
 isGLProcAvailable :: String -> Bool
 isGLProcAvailable name = eglGetProcAddress name /= nullFunPtr
@@ -218,7 +220,7 @@ GL_PROC(glBeginTransformFeedback, GLenum -> IO ())
 GL_PROC(glEndTransformFeedback, IO ())
 GL_PROC(glBindBufferRange, GLenum -> GLuint -> GLuint -> GLintptr -> GLsizeiptr -> IO ())
 GL_PROC(glBindBufferBase, GLenum -> GLuint -> GLuint -> IO ())
---GL_PROC(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr GLchar Ptr const -> GLenum -> IO ())
+GL_PROC(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr CString -> GLenum -> IO ())
 GL_PROC(glGetTransformFeedbackVarying, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr GLchar -> IO ())
 GL_PROC(glVertexAttribIPointer, GLuint -> GLint -> GLenum -> GLsizei -> Ptr () -> IO ())
 GL_PROC(glGetVertexAttribIiv, GLuint -> GLenum -> Ptr GLint -> IO ())
@@ -243,7 +245,7 @@ GL_PROC(glClearBufferfv, GLenum -> GLint -> Ptr GLfloat -> IO ())
 GL_PROC(glClearBufferfi, GLenum -> GLint -> GLfloat -> GLint -> IO ())
 GL_PROC(glGetStringi, GLenum -> GLuint -> IO CString)
 GL_PROC(glCopyBufferSubData, GLenum -> GLenum -> GLintptr -> GLintptr -> GLsizeiptr -> IO ())
---GL_PROC(glGetUniformIndices, GLuint -> GLsizei -> Ptr GLchar Ptr const -> Ptr GLuint -> IO ())
+GL_PROC(glGetUniformIndices, GLuint -> GLsizei -> Ptr CString -> Ptr GLuint -> IO ())
 GL_PROC(glGetActiveUniformsiv, GLuint -> GLsizei -> Ptr GLuint -> GLenum -> Ptr GLint -> IO ())
 GL_PROC(glGetUniformBlockIndex, GLuint -> Ptr GLchar -> IO GLuint)
 GL_PROC(glGetActiveUniformBlockiv, GLuint -> GLuint -> GLenum -> Ptr GLint -> IO ())
@@ -288,7 +290,7 @@ GL_PROC(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLin
 
 -- ** Errors
 data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
-             | OutOfMemory | InvalidFrameBufferOperation
+             | OutOfMemory | InvalidFrameBufferOperation deriving Show
 
 getError :: IO GLError
 getError = unMarshal <$> glGetError
@@ -513,6 +515,42 @@ instance Marshal RenderbufferTarget where
 	marshal Renderbuffer = 0x8D40
 
 
+data Texture = TextureObj { unTexture :: GLuint }
+
+instance ServerObject Texture where
+	genObjects n = allocaArray n $ \arr -> do
+		glGenTextures (fromIntegral n) arr
+		map TextureObj <$> peekArray n arr
+	bindObject target (TextureObj x) =
+		glBindTexture (marshal target) x
+	isObject (TextureObj x) =
+		return . (== 1) =<< glIsTexture x
+	deleteObjects xs = withArray (map unTexture xs) $ \arr ->
+		glDeleteTextures (fromIntegral $ length xs) arr
+
+data TextureTarget =
+	  Tex2D
+	| TexCubeMap
+	| TexCubeMapPosX | TexCubeMapPosY | TexCubeMapPosZ
+	| TexCubeMapNegX | TexCubeMapNegY | TexCubeMapNegZ
+	| Tex3D -- ^ ES 3.0
+	| Tex2DArray -- ^ ES 3.0
+
+instance BindTarget	Texture TextureTarget
+instance Marshal TextureTarget where
+	marshal x = case x of
+		Tex2D          -> 0x0DE1
+		TexCubeMap     -> 0x8513
+		TexCubeMapPosX -> 0x8515
+		TexCubeMapPosY -> 0x8517
+		TexCubeMapPosZ -> 0x8519
+		TexCubeMapNegX -> 0x8516
+		TexCubeMapNegY -> 0x8518
+		TexCubeMapNegZ -> 0x851A
+		Tex3D          -> 0x806F
+		Tex2DArray     -> 0x8C1A
+
+
 -- | ES 3.0
 data Query = QueryObj { unQuery :: GLuint }
 
@@ -554,15 +592,17 @@ instance Marshal TransformFeedbackTarget where
 	marshal TransformFeedback = 0x8E22
 
 {-
+teximg2d's data::Maybe Ptr
+bindzero to clear
 Buffer: {ELEMENT_}ARRAY_BUFFER
 
 TexImage2D,CopyTexImage2D,CopyTexSubImage2D,CompressedTexImage2D,CompressedTexSubImage2D
-	TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X,Y,Z},TEXTURE_CUBE_MAP_NEGATIVE_{X,Y,Z} 
+	b TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X,Y,Z},TEXTURE_CUBE_MAP_NEGATIVE_{X,Y,Z} 
 TexSubImage2D,
-	TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
+	b* TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
 TexParameter{if}v?,GenerateMipmap,GetTexParameter{if}v:
-	TEXTURE_2D, TEXTURE_CUBE_MAP
-BindTexture; *
+	a TEXTURE_2D, TEXTURE_CUBE_MAP
+BindTexture; a+b
 
 BindFramebuffer,FramebufferTexture2D,CheckFramebufferStatus,GetFramebufferAttachmentParameteriv:
 	FRAMEBUFFER
@@ -588,15 +628,147 @@ Framebuffer: FRAMEBUFFER
 FramebufferRenderbuffer,FramebufferTexture2D,CheckFramebufferStatus,GetFramebufferAttachmentParameteriv:
 	FRAMEBUFFER,{DRAW,READ}_FRAMEBUFFER
 Renderbuffer: RENDERBUFFER
-Texture: *
+Texture: a+b+c
 TexImage3D,TexStorage3D,TexSubImage3D,CopyTexSubImage3D,CompressedTexImage3D,: 
-	TEXTURE_3D, TEXTURE_2D_ARRAY
+	c TEXTURE_3D, TEXTURE_2D_ARRAY
 TexStorage2D:
-	TEXTURE_CUBE_MAP, TEXTURE_2D
+	a TEXTURE_CUBE_MAP, TEXTURE_2D
 TexImage2D,CopyTexImage2D,TexSubImage2D,CopyTexSubImage2D,CompressedTexImage2D,CompressedTexSubImage2D,CompressedTexSubImage3D:
-	TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
+	b TEXTURE_2D, TEXTURE_CUBE_MAP_POSITIVE_{X, Y, Z},TEXTURE_CUBE_MAP_NEGATIVE_{X, Y, Z}
 TexParameter{i,f}{,v},GenerateMipmap:
-	TEXTURE_{2D, 3D}, TEXTURE_2D_ARRAY, TEXTURE_CUBE_MAP
+	a+c TEXTURE_{2D, 3D}, TEXTURE_2D_ARRAY, TEXTURE_CUBE_MAP
 
 3.0 TEXTURE_3D, TEXTURE_2D_ARRAY
 -}
+
+newtype Shader = ShaderObj { unShader :: GLuint }
+
+data ShaderType = FragmentShader | VertexShader deriving Show
+instance Marshal ShaderType where
+	marshal FragmentShader = 0x8B30
+	marshal VertexShader   = 0x8B31
+
+data ShaderPName = ShaderType
+                 | CompileStatus
+                 | ShaderInfoLogLength
+                 | ShaderSourceLength
+                 | ShaderCompiler
+                 -- and more on ES 3.0
+instance Marshal ShaderPName where
+	marshal x = case x of
+		ShaderType -> 0x8B4F
+		CompileStatus -> 0x8B81
+		ShaderInfoLogLength -> 0x8B84
+		ShaderSourceLength -> 0x8B88
+		ShaderCompiler -> 0x8DFA
+		-- ...
+
+loadShader :: ShaderType -> String -> IO (Maybe Shader)
+loadShader shaderType code = do
+	shader <- glCreateShader (marshal shaderType)
+	if shader /= 0 then
+		withCString code $ \src -> do
+			glShaderSource shader 1 (unsafeCoerce src) nullPtr
+			glCompileShader shader
+			alloca $ \pint -> do
+				glGetShaderiv shader (marshal CompileStatus) pint
+				compiled <- peek pint
+				if compiled == 0 then do
+					glGetShaderiv shader (marshal ShaderInfoLogLength) pint
+					len <- peek pint
+					allocaBytes (fromIntegral len) $ \buf -> do
+						glGetShaderInfoLog shader len nullPtr buf
+						msg <- peekCStringLen (buf,fromIntegral len)
+						putStrLn $ "Could not compile " ++ show shaderType
+							++ "\n" ++ msg
+					glDeleteShader shader
+					return Nothing
+				else return $ Just $ ShaderObj shader
+	else return Nothing
+
+newtype Program = ProgramObj { unProgram :: GLuint }
+
+data ProgramPName = DeleteStatus
+                  | LinkStatus
+                  | ValidateStatus
+                  | ProgramInfoLogLength
+                  | AttachedShaders
+                  | ActiveAttributes
+                  | ActiveAttributeMaxLength
+                  | ActiveUniforms
+                  | ActiveUniformMaxLength
+                  -- and more and more on ES 3.0
+instance Marshal ProgramPName where
+	marshal x = case x of
+		DeleteStatus -> 0x8B80
+		LinkStatus -> 0x8B82
+		ValidateStatus -> 0x8B83
+		AttachedShaders -> 0x8B85
+		ActiveAttributes -> 0x8B89
+		ActiveUniformMaxLength -> 0x8B8A
+		-- ......
+
+createProgram :: String -> String -> IO (Maybe Program)
+createProgram vertexCode fragmentCode = do
+	v <- loadShader VertexShader vertexCode
+	f <- loadShader FragmentShader fragmentCode
+	maybe (return Nothing) (\v ->
+		maybe (return Nothing) (\f -> do
+			program <- glCreateProgram
+			if program /= 0 then do
+				glAttachShader program (unShader v)
+				showError "glAttachShader"
+				glAttachShader program (unShader f)
+				showError "glAttachShader"
+				glLinkProgram program
+				alloca $ \pint -> do
+					glGetProgramiv program (marshal LinkStatus) pint
+					linkStatus <- peek pint
+					if linkStatus == 0 then do
+						glGetProgramiv program (marshal ProgramInfoLogLength) pint
+						len <- peek pint
+						allocaBytes (fromIntegral len) $ \buf -> do
+							glGetProgramInfoLog program len nullPtr buf
+							msg <- peekCStringLen (buf,fromIntegral len)
+							putStrLn $ "Could not link program:\n" ++ msg
+						glDeleteProgram program
+						return Nothing
+					else return $ Just $ ProgramObj program
+			else return Nothing
+			) f
+		) v
+
+showError :: String -> IO ()
+showError location = do
+	getError >>= \err -> case err of
+		NoError -> return ()
+		_ -> putStrLn $ location ++ " " ++ show err
+
+getAttribLocation :: Program -> String -> IO Int
+getAttribLocation (ProgramObj prog) name = do
+	withCString name $ \str -> do
+		fromIntegral <$> glGetAttribLocation prog str
+
+useProgram :: Program -> IO ()
+useProgram (ProgramObj p) = glUseProgram p
+
+enableVertexAttribArray :: Int -> IO ()
+enableVertexAttribArray index =
+	glEnableVertexAttribArray (fromIntegral index)
+
+data DrawMode = Points | Lines | LineLoop | LineStrip
+              | Triangles | TriangleStrip | TriangleFan
+instance Marshal DrawMode where
+	marshal x = case x of
+		Points -> 0
+		Lines -> 1
+		LineLoop -> 2
+		LineStrip -> 3
+		Triangles -> 4
+		TriangleStrip -> 5
+		TriangleFan -> 6
+
+drawArrays :: DrawMode -> Int -> Int -> IO ()
+drawArrays mode first count =
+	glDrawArrays (marshal mode) (fromIntegral first) (fromIntegral count)
+
