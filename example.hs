@@ -3,12 +3,13 @@ import Control.Concurrent
 --import Graphics.EGL
 import Graphics.OpenGLES
 import qualified Graphics.UI.GLFW as GLFW
+import Foreign.Marshal
 
 main :: IO ()
 main = do
 	let title = "Window Title"
-	    ww = 600
-	    wh = 480
+	    ww = 1600
+	    wh = 1480
 	    fullsc = True
 	isOk <- GLFW.init
 	if not isOk then (fail "Initialization Failed!") else return ()
@@ -24,6 +25,7 @@ main = do
 	--putStrLn $ show aaa
 	putStrLn "Main."
 	pi <- setupGraphics
+	putStrLn "ready."
 	glClearColor 1 1 1 1
 	gameloop win pi
 	
@@ -70,23 +72,13 @@ drawFrame win (program,vposHandle) = do
 	--[buf] <- genObjects 1
 	--deleteObjects [buf :: Buffer]
 	
-	--let vertex = concatMap (\(x,y)->[x/w*2-1,1-y/h*2,-1]) cursors
-	--withArray vertex $ \arr-> do
-	--  clientState VertexArray $= Enabled
-	--  arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 arr
-	--  -- POINTS, LINE_STRIP, LINE_LOOP, LINES, TRIANGLE_STRIP, TRIANGLE_FAN, TRIANGLES
-	--  let kind = [Triangles, Points, LineLoop, LineStrip, LineLoop, Lines, TriangleStrip, TriangleFan, Polygon] !! state
-	--  drawArrays (dumpd "kind" kind) 0 (fromIntegral num)
-	--withArray [-1,1-count/h*2,-1, 1, 1-count/h*2, -1] $ \arr-> do
-	--  arrayPointer VertexArray $= VertexArrayDescriptor 3 Float 0 arr
-	--  drawArrays LineLoop 0 2
-	
 	useProgram program
 	showError "useProgram"
 	
-	vertexAttribPointer vposHandle 2 FloatT False 0 gTriangleVertices
+	withArray (map realToFrac gTriangleVertices) $ \v->
+		vertexAttribPointer vposHandle 2 FloatT False 0 v
 	showError "glVertexAttribPointer"
-	glEnableVertexAttribArray vposHandle
+	enableVertexAttribArray vposHandle
 	showError "glEnableVertexAttribArray"
 	drawArrays Triangles 0 3
 	showError "glDrawArrays"
@@ -98,7 +90,7 @@ gVertexShader =
 	"}\n"
 
 gFragmentShader =
-	"precision mediump float;\n" ++
+	"//precision mediump float;\n" ++
 	"void main() {\n" ++
 	"  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n" ++
 	"}\n"
@@ -115,4 +107,4 @@ setupGraphics = do
 			showError "glViewport"
 			return (program, gvPositionHandle)
 
-gTriangleVertices = [0.0, 0.5,-0.5,-0.5, 0.5,-0.5]
+gTriangleVertices = [0.0, 0.5,-0.5,-0.5, 0.5,-0.5] :: [Float]

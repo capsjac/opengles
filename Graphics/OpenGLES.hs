@@ -668,22 +668,23 @@ loadShader shaderType code = do
 	shader <- glCreateShader (marshal shaderType)
 	if shader /= 0 then
 		withCString code $ \src -> do
-			glShaderSource shader 1 (unsafeCoerce src) nullPtr
-			glCompileShader shader
-			alloca $ \pint -> do
-				glGetShaderiv shader (marshal CompileStatus) pint
-				compiled <- peek pint
-				if compiled == 0 then do
-					glGetShaderiv shader (marshal ShaderInfoLogLength) pint
-					len <- peek pint
-					allocaBytes (fromIntegral len) $ \buf -> do
-						glGetShaderInfoLog shader len nullPtr buf
-						msg <- peekCStringLen (buf,fromIntegral len)
-						putStrLn $ "Could not compile " ++ show shaderType
-							++ "\n" ++ msg
-					glDeleteShader shader
-					return Nothing
-				else return $ Just $ ShaderObj shader
+			withArray [src] $ \ptr -> do
+				glShaderSource shader 1 ptr nullPtr
+				glCompileShader shader
+				alloca $ \pint -> do
+					glGetShaderiv shader (marshal CompileStatus) pint
+					compiled <- peek pint
+					if compiled == 0 then do
+						glGetShaderiv shader (marshal ShaderInfoLogLength) pint
+						len <- peek pint
+						allocaBytes (fromIntegral len) $ \buf -> do
+							glGetShaderInfoLog shader len nullPtr buf
+							msg <- peekCStringLen (buf,fromIntegral len)
+							putStrLn $ "Could not compile " ++ show shaderType
+								++ "\n" ++ msg
+						glDeleteShader shader
+						return Nothing
+					else return $ Just $ ShaderObj shader
 	else return Nothing
 
 newtype Program = ProgramObj { unProgram :: GLuint }
@@ -710,8 +711,11 @@ instance Marshal ProgramPName where
 
 createProgram :: String -> String -> IO (Maybe Program)
 createProgram vertexCode fragmentCode = do
+	putStrLn "aaa"
 	v <- loadShader VertexShader vertexCode
+	putStrLn "aaa"
 	f <- loadShader FragmentShader fragmentCode
+	putStrLn "aaa"
 	maybe (return Nothing) (\v ->
 		maybe (return Nothing) (\f -> do
 			program <- glCreateProgram
@@ -751,6 +755,34 @@ getAttribLocation (ProgramObj prog) name = do
 
 useProgram :: Program -> IO ()
 useProgram (ProgramObj p) = glUseProgram p
+
+data DataType =
+	  ByteT
+	| UByteT
+	| ShortT
+	| UShortT
+	| IntT  -- ^ Cannot used in vertexAttribPointer
+	| UIntT -- ^ Cannot used in vertexAttribPointer
+	| FloatT
+	| FixedT
+	-- and more on ES 3.0
+instance Marshal DataType where
+	marshal x = case x of
+		ByteT -> 0x1400
+		UByteT -> 0x1401
+		ShortT -> 0x1402
+		UShortT -> 0x1403
+		IntT -> 0x1404
+		UIntT -> 0x1405
+		FloatT -> 0x1406
+		FixedT -> 0x140C
+		-- ...
+
+vertexAttribPointer :: Int -> Int -> DataType -> Bool -> Int -> Ptr GLfloat -> IO ()
+vertexAttribPointer index size typ normalized stride ptr =
+	glVertexAttribPointer (fromIntegral index) (fromIntegral size)
+	                      (marshal typ) (fromBool normalized)
+	                      (fromIntegral stride) (unsafeCoerce ptr)
 
 enableVertexAttribArray :: Int -> IO ()
 enableVertexAttribArray index =
