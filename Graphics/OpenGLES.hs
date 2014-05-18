@@ -641,7 +641,7 @@ TexParameter{i,f}{,v},GenerateMipmap:
 3.0 TEXTURE_3D, TEXTURE_2D_ARRAY
 -}
 
-newtype Shader = ShaderObj { unShader :: GLuint }
+newtype Shader = ShaderObj { unShader :: GLuint } deriving Eq
 
 data ShaderType = FragmentShader | VertexShader deriving Show
 instance Marshal ShaderType where
@@ -663,8 +663,8 @@ instance Marshal ShaderPName where
 		ShaderCompiler -> 0x8DFA
 		-- ...
 
-loadShader :: ShaderType -> String -> IO (Maybe Shader)
-loadShader shaderType code = do
+loadShader :: ShaderType -> String -> String -> IO (Either String Shader)
+loadShader shaderType name code = do
 	shader <- glCreateShader (marshal shaderType)
 	if shader /= 0 then
 		withCString code $ \src -> do
@@ -677,15 +677,18 @@ loadShader shaderType code = do
 					if compiled == 0 then do
 						glGetShaderiv shader (marshal ShaderInfoLogLength) pint
 						len <- peek pint
-						allocaBytes (fromIntegral len) $ \buf -> do
+						msg <- allocaBytes (fromIntegral len) $ \buf -> do
 							glGetShaderInfoLog shader len nullPtr buf
 							msg <- peekCStringLen (buf,fromIntegral len)
-							putStrLn $ "Could not compile " ++ show shaderType
-								++ "\n" ++ msg
+							return $ "Could not compile " ++ show shaderType
+								++ " " ++ name ++ "\n" ++ msg
+						putStrLn msg
 						glDeleteShader shader
-						return Nothing
-					else return $ Just $ ShaderObj shader
-	else return Nothing
+						return (Left msg)
+					else return . Right . ShaderObj $ shader
+	else do
+		showError "glCreateShader"
+		return . Left $ "glCreateShader returned 0."
 
 newtype Program = ProgramObj { unProgram :: GLuint }
 
@@ -709,44 +712,48 @@ instance Marshal ProgramPName where
 		ActiveUniformMaxLength -> 0x8B8A
 		-- ......
 
-createProgram :: String -> String -> IO (Maybe Program)
-createProgram vertexCode fragmentCode = do
-	putStrLn "aaa"
-	v <- loadShader VertexShader vertexCode
-	putStrLn "aaa"
-	f <- loadShader FragmentShader fragmentCode
-	putStrLn "aaa"
-	maybe (return Nothing) (\v ->
-		maybe (return Nothing) (\f -> do
-			program <- glCreateProgram
-			if program /= 0 then do
-				glAttachShader program (unShader v)
+createProgram :: [(String,String)]
+              -> [(String,String)]
+              -> IO (Either [String] Program)
+createProgram vertexCodes fragmentCodes = do
+	vx <- mapM (\(n,c)->loadShader VertexShader n c) vertexCodes
+	fx <- mapM (\(n,c)->loadShader FragmentShader n c) fragmentCodes
+	let right (Right _) = True; right _ = False
+	let lefts = filter (not.right) (vx ++ fx)
+	let lft (Left x) = x; rht (Right x) = x
+	if lefts /= [] then return . Left $ map lft lefts
+	else do
+		let sdrs = map rht (vx ++ fx)
+		program <- glCreateProgram
+		if program /= 0 then do
+			let attach shader = do
+				glAttachShader program (unShader shader)
 				showError "glAttachShader"
-				glAttachShader program (unShader f)
-				showError "glAttachShader"
-				glLinkProgram program
-				alloca $ \pint -> do
-					glGetProgramiv program (marshal LinkStatus) pint
-					linkStatus <- peek pint
-					if linkStatus == 0 then do
-						glGetProgramiv program (marshal ProgramInfoLogLength) pint
-						len <- peek pint
-						allocaBytes (fromIntegral len) $ \buf -> do
-							glGetProgramInfoLog program len nullPtr buf
-							msg <- peekCStringLen (buf,fromIntegral len)
-							putStrLn $ "Could not link program:\n" ++ msg
-						glDeleteProgram program
-						return Nothing
-					else return $ Just $ ProgramObj program
-			else return Nothing
-			) f
-		) v
+			mapM attach sdrs
+			glLinkProgram program
+			alloca $ \pint -> do
+				glGetProgramiv program (marshal LinkStatus) pint
+				linkStatus <- peek pint
+				if linkStatus == 0 then do
+					glGetProgramiv program (marshal ProgramInfoLogLength) pint
+					len <- peek pint
+					msg <- allocaBytes (fromIntegral len) $ \buf -> do
+						glGetProgramInfoLog program len nullPtr buf
+						msg <- peekCStringLen (buf,fromIntegral len)
+						return $ "Could not link program:\n" ++ msg
+					putStrLn msg
+					glDeleteProgram program
+					return (Left [msg])
+				else return . Right . ProgramObj $ program
+		else do
+			showError "glCreateProgram"
+			return (Left ["glCreateProgram returned 0."])
 
 showError :: String -> IO ()
 showError location = do
 	getError >>= \err -> case err of
 		NoError -> return ()
-		_ -> putStrLn $ location ++ " " ++ show err
+		_ -> putStrLn $ "GLError " ++ location ++ ": " ++ show err
 
 getAttribLocation :: Program -> String -> IO Int
 getAttribLocation (ProgramObj prog) name = do
@@ -803,4 +810,13 @@ instance Marshal DrawMode where
 drawArrays :: DrawMode -> Int -> Int -> IO ()
 drawArrays mode first count =
 	glDrawArrays (marshal mode) (fromIntegral first) (fromIntegral count)
+
+detectGLESVersion :: Int
+detectGLESVersion =
+	let es2 = isGLProcAvailable "glCreateShader" in
+	let es3 = isGLProcAvailable "glIsQuery" in
+	case (es2,es3) of
+		(True, True)  -> 3
+		(True, False) -> 2
+		_             -> 1
 

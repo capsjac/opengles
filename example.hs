@@ -1,3 +1,4 @@
+-- | $ ghc example -lEGL && ./example
 module Main where
 import Control.Concurrent
 --import Graphics.EGL
@@ -16,14 +17,16 @@ main = do
 	fullScreen <- GLFW.getPrimaryMonitor
 	let mon = if fullsc then fullScreen else Nothing
 	GLFW.windowHint $ GLFW.WindowHint'Resizable True
+	--GLFW.windowHint $ GLFW.WindowHint'ClientAPI GLFW.ClientAPI'OpenGLES
 	win <- GLFW.createWindow ww wh title mon Nothing
 		   >>= maybe (fail "Failed to create a Window") return
 	GLFW.makeContextCurrent (Just win)
 	GLFW.swapInterval 1
 	GLFW.setFramebufferSizeCallback win $ Just $ \_ w h -> return ()
-	--aaa <- getGLExtensions
-	--putStrLn $ show aaa
+	exts <- getGLExtensions
+	putStrLn $ show exts
 	putStrLn "Main."
+	putStrLn =<< getGLVersion
 	pi <- setupGraphics
 	putStrLn "ready."
 	glClearColor 1 1 1 1
@@ -34,12 +37,6 @@ main = do
 
 beginFrame :: IO ()
 beginFrame = do
-	--Box (V2 wl wt) (V2 wr wb) <- fmap realToFrac <$> readIORef (refRegion sys)
-	--glViewport 0 0 (floor $ wr - wl) (floor $ wb - wt)
-	--GL.matrixMode $= GL.Projection
-	--glLoadIdentity
-	--GL.ortho wl wr wb wt 0 (-100)
-	--GL.matrixMode $= GL.Modelview 0
 	clearBuffer True True False
 
 endFrame :: GLFW.Window -> IO ()
@@ -47,15 +44,8 @@ endFrame win = do
 	GLFW.swapBuffers win
 	GLFW.pollEvents
 	threadDelay $ floor $ 1000000 * 0.01
-	--Just t <- GLFW.getTime
-	--n <- readIORef (refFrameCounter sys)
-	--fps <- readIORef (theFPS sys)
-	--threadDelay $ max 0 $ floor $ (1000000 *) $ fromIntegral n / fromIntegral fps - t
-	--if t > 1
-	--	then GLFW.setTime 0 >> writeIORef (currentFPS sys) n >> writeIORef (refFrameCounter sys) 0
-	--	else writeIORef (refFrameCounter sys) (succ n)
 
---gameloop :: GLFW.Window -> IO ()
+gameloop :: GLFW.Window -> Context -> IO ()
 gameloop win opt = do
 	beginFrame
 	drawFrame win opt
@@ -65,12 +55,9 @@ gameloop win opt = do
 		then return ()
 		else gameloop win opt
 
---drawFrame :: GLFW.Window -> IO ()
+drawFrame :: GLFW.Window -> Context -> IO ()
 drawFrame win (program,vposHandle) = do
 	glLineWidth 5.0
-
-	--[buf] <- genObjects 1
-	--deleteObjects [buf :: Buffer]
 	
 	useProgram program
 	showError "useProgram"
@@ -95,12 +82,15 @@ gFragmentShader =
 	"  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n" ++
 	"}\n"
 
-setupGraphics :: IO (Program, Int)
+type Context = (Program, Int)
+setupGraphics :: IO Context
 setupGraphics = do
-	maybeProgram <- createProgram gVertexShader gFragmentShader
+	maybeProgram <- createProgram
+		[("vert", gVertexShader)]
+		[("frag", gFragmentShader)]
 	case maybeProgram of
-		Nothing -> error "Could not create program!"
-		Just program -> do
+		Left msg -> error $ "Could not create program!\n" ++ concat msg
+		Right program -> do
 			gvPositionHandle <- getAttribLocation program "vPosition"
 			showError "glGetAttribLocation"
 			glViewport 0 0 600 480
