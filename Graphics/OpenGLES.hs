@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- | OpenGL ES (ES for Embed Systems) 2.0
 -- <http://www.khronos.org/opengles/sdk/docs/reference_cards/OpenGL-ES-2_0-Reference-card.pdf>
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
@@ -760,8 +761,16 @@ getAttribLocation (ProgramObj prog) name = do
 	withCString name $ \str -> do
 		fromIntegral <$> glGetAttribLocation prog str
 
+getUniformLocation :: (Num a) => Program -> String -> IO a
+getUniformLocation (ProgramObj prog) name = do
+	withCString name $ \str -> do
+		fromIntegral <$> glGetUniformLocation prog str
+
 useProgram :: Program -> IO ()
 useProgram (ProgramObj p) = glUseProgram p
+
+deleteProgram :: Program -> IO ()
+deleteProgram (ProgramObj p) = glDeleteProgram p
 
 data DataType =
 	  ByteT
@@ -791,6 +800,12 @@ vertexAttribPointer index size typ normalized stride ptr =
 	                      (marshal typ) (fromBool normalized)
 	                      (fromIntegral stride) (unsafeCoerce ptr)
 
+vertexAttribPointerArrayBufBound :: Int -> Int -> DataType -> Bool -> Int -> Int -> IO ()
+vertexAttribPointerArrayBufBound index size typ normalized stride offset =
+	glVertexAttribPointer (fromIntegral index) (fromIntegral size)
+	                      (marshal typ) (fromBool normalized)
+	                      (fromIntegral stride) (unsafeCoerce offset)
+
 enableVertexAttribArray :: Int -> IO ()
 enableVertexAttribArray index =
 	glEnableVertexAttribArray (fromIntegral index)
@@ -819,4 +834,87 @@ detectGLESVersion =
 		(True, True)  -> 3
 		(True, False) -> 2
 		_             -> 1
+
+class Uniform a where
+	-- | set a value to an uniform variable
+	uniform :: GLint -> a -> IO ()
+	setUniform :: Program -> String -> a -> IO ()
+	setUniform p name a =
+		getUniformLocation p name >>= \loc-> uniform loc a
+
+instance Uniform GLfloat where
+	uniform = glUniform1f
+instance Uniform (GLfloat,GLfloat) where
+	uniform loc (x,y) = glUniform2f loc x y
+instance Uniform (GLfloat,GLfloat,GLfloat) where
+	uniform loc (x,y,z) = glUniform3f loc x y z
+instance Uniform (GLfloat,GLfloat,GLfloat,GLfloat) where
+	uniform loc (x,y,z,a) = glUniform4f loc x y z a
+instance Uniform GLint where
+	uniform = glUniform1i
+instance Uniform (GLint,GLint) where
+	uniform loc (x,y) = glUniform2i loc x y
+instance Uniform (GLint,GLint,GLint) where
+	uniform loc (x,y,z) = glUniform3i loc x y z
+instance Uniform (GLint,GLint,GLint,GLint) where
+	uniform loc (x,y,z,a) = glUniform4i loc x y z a
+
+-- | Uniform (GLuint..) since ES 3.0
+instance Uniform GLuint where
+	uniform = glUniform1ui
+instance Uniform (GLuint,GLuint) where
+	uniform loc (x,y) = glUniform2ui loc x y
+instance Uniform (GLuint,GLuint,GLuint) where
+	uniform loc (x,y,z) = glUniform3ui loc x y z
+instance Uniform (GLuint,GLuint,GLuint,GLuint) where
+	uniform loc (x,y,z,a) = glUniform4ui loc x y z a
+
+--class UniformVec a where
+--	uniformv :: GLuint -> GLsizei -> Ptr a -> IO ()
+
+data BufferUsage =
+	  StreamDraw
+	| StaticDraw
+	| DynamicDraw
+	| StreamRead -- ^ ES 3.0
+	| StreamCopy -- ^ ES 3.0
+	| StaticRead -- ^ ES 3.0
+	| StaticCopy -- ^ ES 3.0
+	| DynamicRead -- ^ ES 3.0
+	| DynamicCopy -- ^ ES 3.0
+instance Marshal BufferUsage where
+	marshal x = case x of
+		StreamDraw -> 0x88E0
+		StreamRead -> 0x88E1
+		StreamCopy -> 0x88E2
+		StaticDraw -> 0x88E4
+		StaticRead -> 0x88E5
+		StaticCopy -> 0x88E6
+		DynamicDraw -> 0x88E8
+		DynamicRead -> 0x88E9
+		DynamicCopy -> 0x88EA
+
+
+bufferData :: BufferTarget -> Int -> Ptr a -> BufferUsage -> IO ()
+bufferData target size ptr usage = do
+	glBufferData (marshal target) (fromIntegral size)
+	             (castPtr ptr) (marshal usage)
+
+uniformMatrixf2 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf2 loc count transpose value =
+	withArray value $ \ptr ->
+		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
+	                       ptr
+
+uniformMatrixf3 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf3 loc count transpose value =
+	withArray value $ \ptr ->
+		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
+	                       ptr
+
+uniformMatrixf4 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf4 loc count transpose value =
+	withArray value $ \ptr ->
+		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
+	                       ptr
 

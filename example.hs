@@ -9,9 +9,9 @@ import Foreign.Marshal
 main :: IO ()
 main = do
 	let title = "Window Title"
-	    ww = 1600
-	    wh = 1480
-	    fullsc = True
+	    ww = 600
+	    wh = 480
+	    fullsc = False
 	isOk <- GLFW.init
 	if not isOk then (fail "Initialization Failed!") else return ()
 	fullScreen <- GLFW.getPrimaryMonitor
