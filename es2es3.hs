@@ -25,14 +25,14 @@ main = do
 		   >>= maybe (fail "Failed to create a Window") return
 	GLFW.makeContextCurrent (Just win)
 	GLFW.swapInterval 1
-	GLFW.setFramebufferSizeCallback win $ Just $ \_ w h -> return ()
-	exts <- getGLExtensions
-	putStrLn $ show exts
-	putStrLn "Main."
-	putStrLn =<< getGLVersion
+	GLFW.setFramebufferSizeCallback win $ Just resizeCallback
+	wdim@(w,h) <- GLFW.getWindowSize win
+	--putStrLn =<< getGLVersion
 	putStrLn $ show detectGLESVersion
-	cont <- es2init
+
+	cont <- es2init wdim
 	putStrLn "ready."
+	viewport 0 0 w h
 	glClearColor 1 1 1 1
 	gameloop win cont
 	es2term cont
@@ -40,10 +40,9 @@ main = do
 	GLFW.destroyWindow win
 	GLFW.terminate
 
-maxInstancesPerSide = 16
-maxInstances = 16 * 16
-maxRotSpeed = 2 * 3.14159 * 0.3
+resizeCallback _ w h = return ()
 
+type Vertex = ((GLfloat,GLfloat),(GLubyte,GLubyte,GLubyte))
 
 -- Square with diagonal < 2 so that it fits in a [-1..1]^2 square
 -- regardless of rotation.
@@ -55,26 +54,16 @@ quad =
 	,(( 0.7, 0.7), (0x00, 0xFF, 0xFF))
 	]
 
-beginFrame = do
-	--disable Dither
-	glViewport 0 0 1366 768
-	glClearColor 0.2 0.2 0.3 1.0
-	clearBuffer True True False
-
-endFrame win = do
-	GLFW.swapBuffers win
-	GLFW.pollEvents
-	threadDelay $ floor $ 1000000 * 0.01
-
-gameloop :: GLFW.Window -> Context -> IO ()
-gameloop win opt = do
-	beginFrame
-	opt <- es2draw opt
-	endFrame win
-	shouldExit <- GLFW.windowShouldClose win
-	if shouldExit
-		then return ()
-		else gameloop win opt
+instance Storable Vertex where
+	sizeOf ((x,y),(r,g,b)) = sizeOf x + sizeOf y + sizeOf r + sizeOf g + sizeOf b
+	alignment = sizeOf
+	peek _ = error "noway"
+	poke p ((x,y),(r,g,b)) = do
+		pokeByteOff p 0 x
+		pokeByteOff p 4 y
+		pokeByteOff p 8 r
+		pokeByteOff p 9 g
+		pokeByteOff p 10 b
 
 vertexShader2 =
 	"#version 100\n" ++
@@ -96,11 +85,29 @@ fragmentShader2 =
 	"    gl_FragColor = vColor;\n" ++
 	"}\n"
 
-data Context = Context Program Int Int GLint GLint Buffer
+gameloop :: GLFW.Window -> Context -> IO ()
+gameloop win opt = do
+	-- beginFrame
+	--disable Dither
+	glClearColor 0.2 0.2 0.3 1.0
+	clearBuffer True True False
+
+	opt <- es2draw opt
+
+	-- endFrame
+	GLFW.swapBuffers win
+	GLFW.pollEvents
+	threadDelay $ floor $ 1000000 * 0.01
+
+	shouldExit <- GLFW.windowShouldClose win
+	if shouldExit
+		then return ()
+		else gameloop win opt
+
+data Context = Context (Int,Int) Program Int Int GLint GLint Buffer
                        (Int,Int) [GLfloat] [GLfloat]
-es2init = do
-	maybeProgram <- createProgram
-		[("vert", vertexShader2)]
+es2init (w,h) = do
+	maybeProgram <- createProgram [("vert", vertexShader2)]
 		[("frag", fragmentShader2)]
 	case maybeProgram of
 		Left msg -> error $ "Could not create program!\n" ++ concat msg
@@ -116,20 +123,19 @@ es2init = do
 			withArray' quad $ \arr -> do
 				bufferData ArrayBuffer (length quad * sizeOf (quad !! 0))
 				           arr StaticDraw	
-
-			let (wx, hx) = calcDim 1366 768
+			let (wx, hx) = (16, floor $ fromIntegral h / (fromIntegral w / 16))
 			let elems = wx * hx
 			let angles = take elems (repeat 0)
 			rand <- rollDice
 			let angleVs = take elems rand
 
-			return $ Context program posAttr colorAttr scaleRotUnif offsetUnif buf (wx, hx) angles angleVs
+			return $ Context (w,h) program posAttr colorAttr scaleRotUnif offsetUnif buf (wx, hx) angles angleVs
 
-es2term (Context p _ _ _ _ buf _ _ _) = do
+es2term (Context _ p _ _ _ _ buf _ _ _) = do
 	deleteObjects [buf]
 	deleteProgram p
 
-es2draw cxt@(Context program posAttr colorAttr scaleRotUnif offsetUnif buf (wx,hx) angles angleVs) = do
+es2draw cxt@(Context (w,h) program posAttr colorAttr scaleRotUnif offsetUnif buf (wx,hx) angles angleVs) = do
 	useProgram program
 
 	bindObject ArrayBuffer buf
@@ -151,27 +157,11 @@ es2draw cxt@(Context program posAttr colorAttr scaleRotUnif offsetUnif buf (wx,h
 		) [0..wx*hx-1]
 
 	let angles' = zipWith (+) angles angleVs
-	return $ Context program posAttr colorAttr scaleRotUnif offsetUnif buf (wx,hx) angles' angleVs
+	return $ Context (w,h) program posAttr colorAttr scaleRotUnif offsetUnif buf (wx,hx) angles' angleVs
 
 rollDice :: IO [GLfloat]
 rollDice = getStdGen >>= return . randomRs (0, 2*3.14*0.01)
 
-calcDim w h =
-	let n = floor $ h / (w / 16)
-	in (16, n)
-
-type Vertex = ((GLfloat,GLfloat),(GLubyte,GLubyte,GLubyte))
-instance Storable Vertex where
-	sizeOf ((x,y),(r,g,b)) = sizeOf x + sizeOf y + sizeOf r + sizeOf g + sizeOf b
-	alignment = sizeOf
-	peek _ = error "noway"
-	poke p ((x,y),(r,g,b)) = do
-		putStrLn "pkjoj"
-		pokeByteOff p 0 x
-		pokeByteOff p 4 y
-		pokeByteOff p 8 r
-		pokeByteOff p 9 g
-		pokeByteOff p 10 b
 
 withArray' x f = do
 	arr <- mallocBytes (length x * sizeOf (x !! 0))

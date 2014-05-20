@@ -918,3 +918,7 @@ uniformMatrixf4 loc count transpose value =
 		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
 	                       ptr
 
+viewport :: (Integral a, Integral b) => a -> a -> b -> b -> IO ()
+viewport x y w h = glViewport (fromIntegral x) (fromIntegral y)
+                              (fromIntegral w) (fromIntegral h)
+
