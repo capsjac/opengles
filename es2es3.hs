@@ -104,7 +104,7 @@ gameloop win opt = do
 		then return ()
 		else gameloop win opt
 
-data Context = Context (Int,Int) Program Int Int GLint GLint Buffer
+data Context = Context (Int,Int) ProgramId AttrLoc AttrLoc UnifLoc UnifLoc BufferId
                        (Int,Int) [GLfloat] [GLfloat]
 es2init (w,h) = do
 	maybeProgram <- createProgram [("vert", vertexShader2)]
@@ -122,7 +122,7 @@ es2init (w,h) = do
 			bindObject ArrayBuffer buf
 			withArray' quad $ \arr -> do
 				bufferData ArrayBuffer (length quad * sizeOf (quad !! 0))
-				           arr StaticDraw	
+				           arr StaticDraw
 			let (wx, hx) = (16, floor $ fromIntegral h / (fromIntegral w / 16))
 			let elems = wx * hx
 			let angles = take elems (repeat 0)

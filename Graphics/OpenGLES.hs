@@ -254,9 +254,9 @@ GL_PROC(glGetActiveUniformBlockName, GLuint -> GLuint -> GLsizei -> Ptr GLsizei 
 GL_PROC(glUniformBlockBinding, GLuint -> GLuint -> GLuint -> IO ())
 GL_PROC(glDrawArraysInstanced, GLenum -> GLint -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glDrawElementsInstanced, GLenum -> GLsizei -> GLenum -> Ptr () -> GLsizei -> IO ())
-GL_PROC(glFenceSync, GLenum -> GLbitfield -> IO ())
-GL_PROC(glIsSync, GLsync -> IO GLsync)
-GL_PROC(glDeleteSync, GLsync -> IO GLboolean)
+GL_PROC(glFenceSync, GLenum -> GLbitfield -> IO GLsync)
+GL_PROC(glIsSync, GLsync -> IO GLboolean)
+GL_PROC(glDeleteSync, GLsync -> IO ())
 GL_PROC(glClientWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO GLenum)
 GL_PROC(glWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO ())
 GL_PROC(glGetInteger64v, GLenum -> Ptr GLint64 -> IO ())
@@ -440,15 +440,15 @@ class ServerObject a where
 
 class (Marshal b) => BindTarget a b
 
-data Buffer = Buffer { unBuffer :: GLuint }
+newtype BufferId = BufferId { unBufferId :: GLuint }
 
-instance ServerObject Buffer where
+instance ServerObject BufferId where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenBuffers (fromIntegral n) arr
-		map Buffer <$> peekArray n arr
-	bindObject target (Buffer x) = glBindBuffer (marshal target) x
-	isObject (Buffer x) = return . (== 1) =<< glIsBuffer x
-	deleteObjects xs = withArray (map unBuffer xs) $ \arr ->
+		map BufferId <$> peekArray n arr
+	bindObject target (BufferId x) = glBindBuffer (marshal target) x
+	isObject (BufferId x) = return . (== 1) =<< glIsBuffer x
+	deleteObjects xs = withArray (map unBufferId xs) $ \arr ->
 		glDeleteBuffers (fromIntegral $ length xs) arr
 
 data BufferTarget = ArrayBuffer
@@ -460,8 +460,8 @@ data BufferTarget = ArrayBuffer
 -- | ES 3.0
 data BufferTarget' = TransformFeedbackBuffer | UniformBuffer
 
-instance BindTarget	Buffer BufferTarget
-instance BindTarget	Buffer BufferTarget'
+instance BindTarget	BufferId BufferTarget
+instance BindTarget	BufferId BufferTarget'
 instance Marshal BufferTarget where
 	marshal x = case x of
 		ArrayBuffer -> 0x8892
@@ -475,58 +475,58 @@ instance Marshal BufferTarget' where
 	marshal UniformBuffer = 0x8A11
 
 
-data Framebuffer = FramebufferObj { unFramebuffer :: GLuint }
+data FramebufferId = FramebufferId { unFramebufferId :: GLuint }
 
-instance ServerObject Framebuffer where
+instance ServerObject FramebufferId where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenFramebuffers (fromIntegral n) arr
-		map FramebufferObj <$> peekArray n arr
-	bindObject target (FramebufferObj x) =
+		map FramebufferId <$> peekArray n arr
+	bindObject target (FramebufferId x) =
 		glBindFramebuffer (marshal target) x
-	isObject (FramebufferObj x) =
+	isObject (FramebufferId x) =
 		return . (== 1) =<< glIsFramebuffer x
-	deleteObjects xs = withArray (map unFramebuffer xs) $ \arr ->
+	deleteObjects xs = withArray (map unFramebufferId xs) $ \arr ->
 		glDeleteFramebuffers (fromIntegral $ length xs) arr
 
 data FramebufferTarget = Framebuffer
 data FramebufferTarget' = Framebuffer'
                         | DrawFramebuffer -- ^ ES 3.0
                         | ReadFramebuffer -- ^ ES 3.0
-instance BindTarget	Framebuffer FramebufferTarget
+instance BindTarget	FramebufferId FramebufferTarget
 instance Marshal FramebufferTarget where
 	marshal Framebuffer = 0x8D40
 
 
-data Renderbuffer = RenderbufferObj { unRenderbuffer :: GLuint }
+data RenderbufferId = RenderbufferId { unRenderbufferId :: GLuint }
 
-instance ServerObject Renderbuffer where
+instance ServerObject RenderbufferId where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenRenderbuffers (fromIntegral n) arr
-		map RenderbufferObj <$> peekArray n arr
-	bindObject target (RenderbufferObj x) =
+		map RenderbufferId <$> peekArray n arr
+	bindObject target (RenderbufferId x) =
 		glBindRenderbuffer (marshal target) x
-	isObject (RenderbufferObj x) =
+	isObject (RenderbufferId x) =
 		return . (== 1) =<< glIsRenderbuffer x
-	deleteObjects xs = withArray (map unRenderbuffer xs) $ \arr ->
+	deleteObjects xs = withArray (map unRenderbufferId xs) $ \arr ->
 		glDeleteRenderbuffers (fromIntegral $ length xs) arr
 
 data RenderbufferTarget = Renderbuffer
-instance BindTarget	Renderbuffer RenderbufferTarget
+instance BindTarget	RenderbufferId RenderbufferTarget
 instance Marshal RenderbufferTarget where
 	marshal Renderbuffer = 0x8D40
 
 
-data Texture = TextureObj { unTexture :: GLuint }
+data TextureId = TextureId { unTextureId :: GLuint }
 
-instance ServerObject Texture where
+instance ServerObject TextureId where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenTextures (fromIntegral n) arr
-		map TextureObj <$> peekArray n arr
-	bindObject target (TextureObj x) =
+		map TextureId <$> peekArray n arr
+	bindObject target (TextureId x) =
 		glBindTexture (marshal target) x
-	isObject (TextureObj x) =
+	isObject (TextureId x) =
 		return . (== 1) =<< glIsTexture x
-	deleteObjects xs = withArray (map unTexture xs) $ \arr ->
+	deleteObjects xs = withArray (map unTextureId xs) $ \arr ->
 		glDeleteTextures (fromIntegral $ length xs) arr
 
 data TextureTarget =
@@ -537,7 +537,7 @@ data TextureTarget =
 	| Tex3D -- ^ ES 3.0
 	| Tex2DArray -- ^ ES 3.0
 
-instance BindTarget	Texture TextureTarget
+instance BindTarget	TextureId TextureTarget
 instance Marshal TextureTarget where
 	marshal x = case x of
 		Tex2D          -> 0x0DE1
@@ -553,35 +553,35 @@ instance Marshal TextureTarget where
 
 
 -- | ES 3.0
-data Query = QueryObj { unQuery :: GLuint }
+data QueryId = QueryId { unQueryId :: GLuint }
 
-instance ServerObject Query where
+instance ServerObject QueryId where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenQueries (fromIntegral n) arr
-		map QueryObj <$> peekArray n arr
+		map QueryId <$> peekArray n arr
 	bindObject _ _ = fail "bindObject for a Query does not exist."
-	isObject (QueryObj x) = return . (== 1) =<< glIsQuery x
-	deleteObjects xs = withArray (map unQuery xs) $ \arr ->
+	isObject (QueryId x) = return . (== 1) =<< glIsQuery x
+	deleteObjects xs = withArray (map unQueryId xs) $ \arr ->
 		glDeleteQueries (fromIntegral $ length xs) arr
 
 -- | ES 3.0
 data QueryTarget = AnySamplesPassed | AnySamplesPassedConservative
-instance BindTarget	Query QueryTarget
+instance BindTarget	QueryId QueryTarget
 instance Marshal QueryTarget where
 	marshal AnySamplesPassed = 0x8C2F
 	marshal AnySamplesPassedConservative = 0x8D6A
 
 
 -- | ES 3.0
-data TransformFeedback = TransformFeedbackObj { unTransformFeedback :: GLuint }
+data TransformFeedback = TransformFeedbackId { unTransformFeedback :: GLuint }
 
 instance ServerObject TransformFeedback where
 	genObjects n = allocaArray n $ \arr -> do
 		glGenTransformFeedbacks (fromIntegral n) arr
-		map TransformFeedbackObj <$> peekArray n arr
-	bindObject target (TransformFeedbackObj x) =
+		map TransformFeedbackId <$> peekArray n arr
+	bindObject target (TransformFeedbackId x) =
 		glBindTransformFeedback (marshal target) x
-	isObject (TransformFeedbackObj x) =
+	isObject (TransformFeedbackId x) =
 		return . (== 1) =<< glIsTransformFeedback x
 	deleteObjects xs = withArray (map unTransformFeedback xs) $ \arr ->
 		glDeleteTransformFeedbacks (fromIntegral $ length xs) arr
@@ -642,9 +642,9 @@ TexParameter{i,f}{,v},GenerateMipmap:
 3.0 TEXTURE_3D, TEXTURE_2D_ARRAY
 -}
 
-newtype Shader = ShaderObj { unShader :: GLuint } deriving Eq
+newtype ShaderId = ShaderId { unShaderId :: GLuint } deriving Eq
 
-data ShaderType = FragmentShader | VertexShader deriving Show
+data ShaderType = FragmentShader | VertexShader deriving (Show, Eq)
 instance Marshal ShaderType where
 	marshal FragmentShader = 0x8B30
 	marshal VertexShader   = 0x8B31
@@ -664,7 +664,7 @@ instance Marshal ShaderPName where
 		ShaderCompiler -> 0x8DFA
 		-- ...
 
-loadShader :: ShaderType -> String -> String -> IO (Either String Shader)
+loadShader :: ShaderType -> String -> String -> IO (Either String ShaderId)
 loadShader shaderType name code = do
 	shader <- glCreateShader (marshal shaderType)
 	if shader /= 0 then
@@ -686,12 +686,12 @@ loadShader shaderType name code = do
 						putStrLn msg
 						glDeleteShader shader
 						return (Left msg)
-					else return . Right . ShaderObj $ shader
+					else return . Right . ShaderId $ shader
 	else do
 		showError "glCreateShader"
 		return . Left $ "glCreateShader returned 0."
 
-newtype Program = ProgramObj { unProgram :: GLuint }
+newtype ProgramId = ProgramId { unProgramId :: GLuint }
 
 data ProgramPName = DeleteStatus
                   | LinkStatus
@@ -715,7 +715,7 @@ instance Marshal ProgramPName where
 
 createProgram :: [(String,String)]
               -> [(String,String)]
-              -> IO (Either [String] Program)
+              -> IO (Either [String] ProgramId)
 createProgram vertexCodes fragmentCodes = do
 	vx <- mapM (\(n,c)->loadShader VertexShader n c) vertexCodes
 	fx <- mapM (\(n,c)->loadShader FragmentShader n c) fragmentCodes
@@ -728,7 +728,7 @@ createProgram vertexCodes fragmentCodes = do
 		program <- glCreateProgram
 		if program /= 0 then do
 			let attach shader = do
-				glAttachShader program (unShader shader)
+				glAttachShader program (unShaderId shader)
 				showError "glAttachShader"
 			mapM attach sdrs
 			glLinkProgram program
@@ -745,7 +745,7 @@ createProgram vertexCodes fragmentCodes = do
 					putStrLn msg
 					glDeleteProgram program
 					return (Left [msg])
-				else return . Right . ProgramObj $ program
+				else return . Right . ProgramId $ program
 		else do
 			showError "glCreateProgram"
 			return (Left ["glCreateProgram returned 0."])
@@ -756,21 +756,25 @@ showError location = do
 		NoError -> return ()
 		_ -> putStrLn $ "GLError " ++ location ++ ": " ++ show err
 
-getAttribLocation :: Program -> String -> IO Int
-getAttribLocation (ProgramObj prog) name = do
+newtype AttrLoc = AttrLoc { unAttrLoc :: GLuint }
+
+getAttribLocation :: ProgramId -> String -> IO AttrLoc
+getAttribLocation (ProgramId prog) name = do
 	withCString name $ \str -> do
-		fromIntegral <$> glGetAttribLocation prog str
+		AttrLoc . fromIntegral <$> glGetAttribLocation prog str
 
-getUniformLocation :: (Num a) => Program -> String -> IO a
-getUniformLocation (ProgramObj prog) name = do
+newtype UnifLoc = UnifLoc { unUnifLoc :: GLint }
+
+getUniformLocation :: (Num a) => ProgramId -> String -> IO UnifLoc
+getUniformLocation (ProgramId prog) name = do
 	withCString name $ \str -> do
-		fromIntegral <$> glGetUniformLocation prog str
+		UnifLoc <$> glGetUniformLocation prog str
 
-useProgram :: Program -> IO ()
-useProgram (ProgramObj p) = glUseProgram p
+useProgram :: ProgramId -> IO ()
+useProgram (ProgramId p) = glUseProgram p
 
-deleteProgram :: Program -> IO ()
-deleteProgram (ProgramObj p) = glDeleteProgram p
+deleteProgram :: ProgramId -> IO ()
+deleteProgram (ProgramId p) = glDeleteProgram p
 
 data DataType =
 	  ByteT
@@ -794,24 +798,25 @@ instance Marshal DataType where
 		FixedT -> 0x140C
 		-- ...
 
-vertexAttribPointer :: Int -> Int -> DataType -> Bool -> Int -> Ptr GLfloat -> IO ()
-vertexAttribPointer index size typ normalized stride ptr =
-	glVertexAttribPointer (fromIntegral index) (fromIntegral size)
+vertexAttribPointer :: AttrLoc -> Int -> DataType -> Bool -> Int -> Ptr GLfloat -> IO ()
+vertexAttribPointer (AttrLoc index) size typ normalized stride ptr =
+	glVertexAttribPointer index (fromIntegral size)
 	                      (marshal typ) (fromBool normalized)
 	                      (fromIntegral stride) (unsafeCoerce ptr)
 
-vertexAttribPointerArrayBufBound :: Int -> Int -> DataType -> Bool -> Int -> Int -> IO ()
-vertexAttribPointerArrayBufBound index size typ normalized stride offset =
-	glVertexAttribPointer (fromIntegral index) (fromIntegral size)
+vertexAttribPointerArrayBufBound :: AttrLoc -> Int -> DataType -> Bool -> Int -> Int -> IO ()
+vertexAttribPointerArrayBufBound (AttrLoc index) size typ normalized stride offset =
+	glVertexAttribPointer index (fromIntegral size)
 	                      (marshal typ) (fromBool normalized)
 	                      (fromIntegral stride) (unsafeCoerce offset)
 
-enableVertexAttribArray :: Int -> IO ()
-enableVertexAttribArray index =
-	glEnableVertexAttribArray (fromIntegral index)
+enableVertexAttribArray :: AttrLoc -> IO ()
+enableVertexAttribArray (AttrLoc index) =
+	glEnableVertexAttribArray index
 
 data DrawMode = Points | Lines | LineLoop | LineStrip
               | Triangles | TriangleStrip | TriangleFan
+              deriving (Show, Eq)
 instance Marshal DrawMode where
 	marshal x = case x of
 		Points -> 0
@@ -837,37 +842,41 @@ detectGLESVersion =
 
 class Uniform a where
 	-- | set a value to an uniform variable
-	uniform :: GLint -> a -> IO ()
-	setUniform :: Program -> String -> a -> IO ()
+	uniform :: UnifLoc -> a -> IO ()
+	uniform (UnifLoc loc) = uniform_ loc
+	
+	uniform_ :: GLint -> a -> IO ()
+	
+	setUniform :: ProgramId -> String -> a -> IO ()
 	setUniform p name a =
 		getUniformLocation p name >>= \loc-> uniform loc a
 
 instance Uniform GLfloat where
-	uniform = glUniform1f
+	uniform_ = glUniform1f
 instance Uniform (GLfloat,GLfloat) where
-	uniform loc (x,y) = glUniform2f loc x y
+	uniform_ loc (x,y) = glUniform2f loc x y
 instance Uniform (GLfloat,GLfloat,GLfloat) where
-	uniform loc (x,y,z) = glUniform3f loc x y z
+	uniform_ loc (x,y,z) = glUniform3f loc x y z
 instance Uniform (GLfloat,GLfloat,GLfloat,GLfloat) where
-	uniform loc (x,y,z,a) = glUniform4f loc x y z a
+	uniform_ loc (x,y,z,a) = glUniform4f loc x y z a
 instance Uniform GLint where
-	uniform = glUniform1i
+	uniform_ = glUniform1i
 instance Uniform (GLint,GLint) where
-	uniform loc (x,y) = glUniform2i loc x y
+	uniform_ loc (x,y) = glUniform2i loc x y
 instance Uniform (GLint,GLint,GLint) where
-	uniform loc (x,y,z) = glUniform3i loc x y z
+	uniform_ loc (x,y,z) = glUniform3i loc x y z
 instance Uniform (GLint,GLint,GLint,GLint) where
-	uniform loc (x,y,z,a) = glUniform4i loc x y z a
+	uniform_ loc (x,y,z,a) = glUniform4i loc x y z a
 
 -- | Uniform (GLuint..) since ES 3.0
 instance Uniform GLuint where
-	uniform = glUniform1ui
+	uniform_ = glUniform1ui
 instance Uniform (GLuint,GLuint) where
-	uniform loc (x,y) = glUniform2ui loc x y
+	uniform_ loc (x,y) = glUniform2ui loc x y
 instance Uniform (GLuint,GLuint,GLuint) where
-	uniform loc (x,y,z) = glUniform3ui loc x y z
+	uniform_ loc (x,y,z) = glUniform3ui loc x y z
 instance Uniform (GLuint,GLuint,GLuint,GLuint) where
-	uniform loc (x,y,z,a) = glUniform4ui loc x y z a
+	uniform_ loc (x,y,z,a) = glUniform4ui loc x y z a
 
 --class UniformVec a where
 --	uniformv :: GLuint -> GLsizei -> Ptr a -> IO ()
@@ -900,20 +909,20 @@ bufferData target size ptr usage = do
 	glBufferData (marshal target) (fromIntegral size)
 	             (castPtr ptr) (marshal usage)
 
-uniformMatrixf2 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
-uniformMatrixf2 loc count transpose value =
+uniformMatrixf2 :: UnifLoc -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf2 (UnifLoc loc) count transpose value =
 	withArray value $ \ptr ->
 		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
 	                       ptr
 
-uniformMatrixf3 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
-uniformMatrixf3 loc count transpose value =
+uniformMatrixf3 :: UnifLoc -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf3 (UnifLoc loc) count transpose value =
 	withArray value $ \ptr ->
 		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
 	                       ptr
 
-uniformMatrixf4 :: GLint -> Int -> Bool -> [GLfloat] -> IO ()
-uniformMatrixf4 loc count transpose value =
+uniformMatrixf4 :: UnifLoc -> Int -> Bool -> [GLfloat] -> IO ()
+uniformMatrixf4 (UnifLoc loc) count transpose value =
 	withArray value $ \ptr ->
 		glUniformMatrix2fv loc (fromIntegral count) (fromBool transpose)
 	                       ptr
@@ -921,4 +930,39 @@ uniformMatrixf4 loc count transpose value =
 viewport :: (Integral a, Integral b) => a -> a -> b -> b -> IO ()
 viewport x y w h = glViewport (fromIntegral x) (fromIntegral y)
                               (fromIntegral w) (fromIntegral h)
+
+flashCommands :: IO ()
+flashCommands = glFlush
+
+waitForFinish :: IO ()
+waitForFinish = glFinish
+
+data SyncResult = AlreadySignaled
+                | ConditionSatisfied
+                | TimeoutExpired
+                | WaitFailed 
+                | InvalidValue_
+
+-- | better glFinish for ES 3.0
+waitForGPUCommandsComplete :: (Integral a)
+                           => Bool -- ^ flag for GL_SYNC_FLUSH_COMMANDS_BIT
+                           -> a -- ^ timeout in nanosecond
+                           -> IO SyncResult
+waitForGPUCommandsComplete flashCmds timeout_ns = do
+	sync <- glFenceSync 0x9117 0 -- GL_SYNC_GPU_COMMANDS_COMPLETE
+	res <- glClientWaitSync sync (fromBool flashCmds) $ fromIntegral timeout_ns
+	glDeleteSync sync
+	return $ case res of
+		0x911A -> AlreadySignaled -- GL_ALREADY_SIGNALED
+		0x911C -> ConditionSatisfied -- GL_CONDITION_SATISFIED
+		0x911B -> TimeoutExpired -- GL_TIMEOUT_EXPIRED
+		0x911D -> WaitFailed -- GL_WAIT_FAILED
+		0x0501 -> InvalidValue_ -- GL_INVALID_VALUE
+
+-- | ES 3.0
+blockGPUWhileDraw :: IO ()
+blockGPUWhileDraw = do
+	sync <- glFenceSync 0x9117 0 -- GL_SYNC_GPU_COMMANDS_COMPLETE
+	glWaitSync sync 0 0xFFFFFFFFFFFFFFFF -- GL_TIMEOUT_IGNORED
+	glDeleteSync sync
 
