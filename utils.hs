@@ -44,10 +44,11 @@ resizeCallback _ w h = return ()
 mainloop win cont = do
 	r <- mapM drawData awesomeObject
 	putStrLn $ show r
+	case r of [Right ok] -> drawData ok
 
 	GLFW.swapBuffers win
 	GLFW.pollEvents
-	threadDelay $ floor $ 1000000
+	threadDelay $ 1000000
 
 	shouldExit <- GLFW.windowShouldClose win
 	if shouldExit
@@ -73,7 +74,7 @@ cast :: Float -> [Word8]
 cast x = runST (newArray (0 :: Int, 3) x >>= castSTUArray >>= getElems)
 
 awesomeObject =
-	[ DrawCall
+	[ DrawUnit
 		TriangleStrip
 		(Program "test"
 			[ VertexShader "test.vs" (Blob vertexShader2)

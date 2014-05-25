@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Graphics.OpenGLES.Core where
 import qualified Data.ByteString as B
 import Control.Applicative
@@ -11,20 +12,41 @@ import Graphics.OpenGLES.Base
 
 -- * Core Data Types
 
-data DrawCall = DrawCall
-	{ dcMode :: DrawMode
-	, dcProgram :: Program
-	, dcCount :: Indices
-	, dcAttrs :: [VertexAttr]
-	, dcUniforms :: [UniformVar]
-	, dcTexture :: [Texture]
-	, dcConfig :: DrawConfig
-	}
+data DrawCall = DrawUnit
+		DrawMode
+		(ProgramId -> [ShaderId] -> Program)
+		Indices
+		[AttrId -> VertexAttr]
+		[UniformId -> UniformVar]
+		[TextureId -> Texture]
+		DrawConfig
+	| DrawArrays
+		{ dcMode :: DrawMode
+		, dcProgram :: Program
+		, dcCount :: Indices
+		, dcAttrs :: [VertexAttr]
+		, dcUniforms :: [UniformVar]
+		, dcTexture :: [Texture]
+		, dcConfig :: DrawConfig
+		}
 	deriving (Show, Eq)
+
+instance Show (ProgramId -> [ShaderId] -> Program) where show x = show (x 0 [])
+instance Eq (ProgramId -> [ShaderId] -> Program) where x == y = x 0 [] == y 0 []
+
+instance Show (AttrId -> VertexAttr) where show x = show (x 0)
+instance Eq (AttrId -> VertexAttr) where x == y = x 0 == y 0
+
+instance Show (UniformId -> UniformVar) where show x = show (x 0)
+instance Eq (UniformId -> UniformVar) where x == y = x 0 == y 0
+
+instance Show (TextureId -> Texture) where show x = show (x 0)
+instance Eq (TextureId -> Texture) where x == y = x 0 == y 0
 -- XXX: DrawTexture Extension
 
-data Blob = Blob { blobContent :: B.ByteString }
-	| BufferId GLuint
+data Blob =
+	  Blob B.ByteString
+	| Blob' BufferId
 	deriving (Show, Eq)
 
 
@@ -40,8 +62,12 @@ type Indices = Int
 
 -- ** Shader
 
-data Program = Program String [Shader]
-	| ProgramId GLuint [GLuint]
+data Program = Program
+	{ progName :: String
+	, progSdrs :: [Shader]
+	, progId :: ProgramId
+	, progSids :: [ShaderId]
+	}
 	deriving (Show, Eq)
 
 {-data Shader = Shader
@@ -51,7 +77,8 @@ data Program = Program String [Shader]
 	, s_uniforms :: [String]
 	}
 	deriving (Show, Eq)-}
-data Shader = VertexShader
+data Shader =
+	  VertexShader
 		{ sdrName :: String
 		, sdrSource :: Blob
 		}
@@ -59,7 +86,6 @@ data Shader = VertexShader
 		{ sdrName :: String
 		, sdrSource :: Blob
 		}
-	| ShaderId GLuint
 	deriving (Show, Eq)
 
 
@@ -74,10 +100,12 @@ data VertexAttr = VertexAttr
 		, attrStride :: Int
 		, attrOffset :: Int
 		, attrArray :: Blob
+		, attrId :: AttrId
 		}
 	| ConstantVA
 		{ attrVarName :: String
 		, attrValue :: AttrValue
+		, attrId :: AttrId
 		}
 	deriving (Show, Eq)
 	--VertexAttrDiv
@@ -110,12 +138,11 @@ data AttrValue =
 
 -- ** Uniform Variable
 
-data UniformVar =
-	  UniformVar
-		{ uniformName :: String
-		, uniformValue :: UniformValue
-		}
-	| UniformId GLint
+data UniformVar = UniformVar
+	{ uniformName :: String
+	, uniformValue :: UniformValue
+	, uniformId :: UniformId
+	}
 	deriving (Show, Eq)
 
 data UniformValue =
@@ -156,6 +183,7 @@ data Texture = Texture
 	, texHeight :: Int
 	, texBorder :: Int
 	, texLevel :: Int
+	, texId :: TextureId
 	}
 	deriving (Show, Eq)
 
@@ -228,20 +256,29 @@ data DrawConfig = DrawConfig
 -- * Data-driven Rendering
 
 drawData :: DrawCall -> IO (Either [String] DrawCall)
-drawData d@(DrawCall mode prog count attrs vars tex conf) = do
-	putStrLn "draw start"
+drawData d@(DrawUnit mode prog count attr uni tex conf) = do
 	compiled <- loadProgram prog
 	case compiled of
-		err@(Left _) -> return err
+		Left err -> return $ Left err
 		Right prog -> do
-
-			vars <- mapM (getUniformLocation prog . uniformName) attrs
-
-			return $ Right d { dcProgram = prog, dcUniforms = vars }
-		
+			attr' <- mapM (\a->
+				a <$> getAttribLocation (progId prog) (attrVarName $ a 0)
+				) attr
+			uni' <- mapM (\u->
+				u <$> getUniformLocation (progId prog) (uniformName $ u 0)
+				) uni
+			-- array buffer
+			let tex' = map ($ 0) tex
+			return . Right $ DrawArrays	mode prog count attr' uni' tex' conf
+drawData d@(DrawArrays mode prog count attrs vars tex conf) = do
+	putStrLn "draw start"
+	glUseProgram (progId prog)
+	
 	-- vertex attribute
-
+	mapM_ setVertexAttr attrs
 	-- uniform variable
+	mapM_ setUniform vars
+	-- texture
 	
 	let setCapability bool = if bool then enable else disable
 	setCapability (blendEnable conf) Blend
@@ -250,9 +287,17 @@ drawData d@(DrawCall mode prog count attrs vars tex conf) = do
 	glDepthMask (fromBool $ depthMaskEnable conf)
 
 	glDrawArrays (marshal mode) 0 (fromIntegral count)
+	return . Right $ d
 
 
 -- call glPixelStorei GL_[UN]PACK_ALIGNMENT [1248] before texImage2d
+-- ** Types
+type BufferId = GLuint
+type ProgramId = GLuint
+type ShaderId = GLuint
+type AttrId = GLuint
+type UniformId = GLint
+type TextureId = GLuint
 
 -- ** Utils
 data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
@@ -308,8 +353,9 @@ instance Marshal ProgramProps where
 		ActiveUniformMaxLength -> 0x8B8A
 		-- ......
 
-loadProgram :: Program -> IO (Either [String] Program)
-loadProgram (Program name shaders) = do
+loadProgram :: (ProgramId -> [ShaderId] -> Program) -> IO (Either [String] Program)
+loadProgram arg = do
+	let Program name shaders _ _ = arg 0 []
 	results <- mapM loadShader shaders	
 	let left (Left x) = [x]; left _ = []
 	let lefts = concatMap left results
@@ -323,7 +369,7 @@ loadProgram (Program name shaders) = do
 			showError "glCreateProgram"
 			return (Left ["glCreateProgram returned 0."])
 		else do
-			mapM (\(ShaderId sid)->
+			mapM (\sid ->
 				glAttachShader pid sid >> showError "glAttachShader") sdrs
 			glLinkProgram pid
 			alloca $ \pint -> do
@@ -339,7 +385,7 @@ loadProgram (Program name shaders) = do
 					putStrLn msg
 					glDeleteProgram pid
 					return (Left [msg])
-				else return . Right $ ProgramId	pid (map (\(ShaderId i)->i) sdrs)
+				else return . Right $ arg pid sdrs
 
 
 data ShaderProps = ShaderType
@@ -358,7 +404,9 @@ instance Marshal ShaderProps where
 		ShaderCompiler -> 0x8DFA
 		-- ...
 
-loadShader :: Shader -> IO (Either String Shader)
+blobContent (Blob b) = b
+
+loadShader :: Shader -> IO (Either String ShaderId)
 loadShader s =
 	case s of
 		VertexShader name blob -> go 0x8B31 name blob
@@ -386,16 +434,49 @@ loadShader s =
 							putStrLn msg
 							glDeleteShader sid
 							return (Left msg)
-						else return . Right . ShaderId $ sid
---getAttribLocation :: ProgramId -> String -> IO AttrLoc
---getAttribLocation (ProgramId prog) name = do
-	--withCString name $ \str -> do
-		--AttrLoc . fromIntegral <$> glGetAttribLocation prog str
+						else return $ Right sid
 
-getUniformLocation :: (Num a) => Program -> String -> IO UniformVar
-getUniformLocation (ProgramId prog) name = do
-	withCString name $ \str -> do
-		UniformId <$> glGetUniformLocation prog str
+getAttribLocation :: ProgramId -> String -> IO AttrId
+getAttribLocation prog name = do
+	withCString name (liftA fromIntegral . glGetAttribLocation prog)
+
+setVertexAttr :: VertexAttr -> IO ()
+setVertexAttr (VertexAttr name typ srcty normalize stride offset array i) = do
+	putStrLn name
+	--bindArray array
+	--glVertexAttribPointer i size (marshal srcty) (fromBool normalize) stride offset
+setVertexAttr (ConstantVA name value loc) =
+	case value of
+		Attr1f x -> glVertexAttrib1f loc x
+		Attr2f x y -> glVertexAttrib2f loc x y
+		Attr3f x y z -> glVertexAttrib3f loc x y z
+		Attr4f x y z w -> glVertexAttrib4f loc x y z w
+		Attr4i x y z w -> glVertexAttribI4i loc x y z w
+		Attr4ui x y z w -> glVertexAttribI4ui loc x y z w
+		-- XXX try Vec and glVertexAttribNfv
+
+getUniformLocation :: ProgramId -> String -> IO UniformId
+getUniformLocation prog name =
+	withCString name (glGetUniformLocation prog)
+
+setUniform :: UniformVar -> IO ()
+setUniform (UniformVar _ val loc) =
+	case val of
+		Uniform1f x -> glUniform1f loc x
+		Uniform2f x y -> glUniform2f loc x y
+		Uniform3f x y z -> glUniform3f loc x y z
+		Uniform4f x y z w -> glUniform4f loc x y z w
+		Uniform1i x -> glUniform1i loc x
+		Uniform2i x y -> glUniform2i loc x y
+		Uniform3i x y z -> glUniform3i loc x y z
+		Uniform4i x y z w -> glUniform4i loc x y z w
+		UniformMatrix2 a b c d ->
+			withArray [a,b,c,d] (glUniformMatrix2fv loc 1 0)
+		-- ...
+		Uniform1ui x -> glUniform1ui loc x
+		Uniform2ui x y -> glUniform2ui loc x y
+		Uniform3ui x y z -> glUniform3ui loc x y z
+		Uniform4ui x y z w -> glUniform4ui loc x y z w
 
 data Capability =
 	  Texture2D
