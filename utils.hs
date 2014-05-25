@@ -3,13 +3,14 @@ import Control.Concurrent (threadDelay)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 import Data.Word (Word8)
-import Graphics.OpenGLES hiding (UByteT,FloatT)
-import Graphics.OpenGLES.Types
-import Graphics.OpenGLES.Utils
+import Graphics.OpenGLES
 import qualified Graphics.UI.GLFW as GLFW
 import Data.Array.ST (newArray, getElems, MArray, STUArray)
 import Data.Array.Unsafe (castSTUArray)
 import GHC.ST (runST, ST)
+
+data Context = Context
+	deriving Show
 
 main :: IO ()
 main = do
@@ -28,20 +29,30 @@ main = do
 	--GLFW.swapInterval 1
 	GLFW.setFramebufferSizeCallback win $ Just resizeCallback
 	wdim@(w,h) <- GLFW.getWindowSize win
-	--putStrLn =<< getGLVersion
-	--putStrLn $ show detectGLESVersion
 
-	--cont <- es2init wdim
-	--putStrLn "ready."
-	viewport 0 0 w h
-	glClearColor 1 1 1 1
-	--gameloop win cont
-	--es2term cont
+	cont <- return Context
+	--viewport 0 0 w h
+	--glClearColor 1 1 1 1
+	mainloop win cont
+	return cont
 	
 	GLFW.destroyWindow win
 	GLFW.terminate
 
 resizeCallback _ w h = return ()
+
+mainloop win cont = do
+	r <- mapM drawData awesomeObject
+	putStrLn $ show r
+
+	GLFW.swapBuffers win
+	GLFW.pollEvents
+	threadDelay $ floor $ 1000000
+
+	shouldExit <- GLFW.windowShouldClose win
+	if shouldExit
+		then return ()
+		else mainloop win cont
 
 
 data BufferMarkup = BufferMarkup [String] [String]
@@ -61,26 +72,22 @@ chunkOf (a:b:xs) = [a, b] : chunkOf xs
 cast :: Float -> [Word8]
 cast x = runST (newArray (0 :: Int, 3) x >>= castSTUArray >>= getElems)
 
-data DrawableObject = Mesh Mesh deriving Show
-
-awesomeObject = Mesh
+awesomeObject =
 	[ DrawCall
 		TriangleStrip
-		(Program
-			[ Shader VertexShader (Blob vertexShader2)
-				["pos", "color"] ["scaleRot", "offset"]
-			, Shader FragmentShader (Blob fragmentShader2)
-				[] []
+		(Program "test"
+			[ VertexShader "test.vs" (Blob vertexShader2)
+			, FragmentShader "test.fs" (Blob fragmentShader2)
 			])
 		4
 		[ VertexAttr "pos" F2 FloatT False (4*2+1*4) 0 packedBlob
 		, VertexAttr "color" F4 UByteT True (4*2+1*4) (4*2) packedBlob
 		]
-		[ UniformVar "scaleRot" (UniformMatrix2 0 0 0 0)
+		[ UniformVar "scaleRot" (UniformMatrix2 1 0 0 1)
 		, UniformVar "offset" (Uniform2f 0 0)
 		]
 		[]
-		(DrawConfig True True 0 False)
+		(DrawConfig True True False False)
 	]
 
 vertexShader2 = BS.pack $
