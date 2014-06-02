@@ -2,13 +2,39 @@
 module Graphics.OpenGLES.Core where
 import qualified Data.ByteString as B
 import Control.Applicative
+import Foreign
 import Foreign.C.String
 import Foreign.Marshal.Alloc (alloca, allocaBytes)
 import Foreign.Marshal.Array
 import Foreign.Marshal.Utils
-import Foreign.Ptr
 import Foreign.Storable
 import Graphics.OpenGLES.Base
+
+foreign import ccall "wrapper"
+	wrapFinalizerPtr :: (Ptr () -> IO ()) -> IO (FinalizerPtr ())
+
+bindFinalizer :: (GLuint -> IO ()) -> GLuint -> IO (ForeignPtr a)
+bindFinalizer finalizer i = do
+	f <- wrapFinalizerPtr (\ptr ->
+		finalizer (fromIntegral $ ptr `minusPtr` nullPtr))
+	let idptr = nullPtr `plusPtr` fromIntegral i
+	newForeignPtr f idptr
+
+--program <- bindFinalizer glDeleteProgram programId
+
+data GLManager = GLManager
+	{ glAPIVersion :: GLVersion -- ^ specify API to be used
+	, compiledProgramBinaries :: [(String, B.ByteString)]
+	-- ^ get/set after/before program linkage
+	, buffers, programs, textures, framebuffers, renderbuffers
+	}
+
+data GLVersion = ES20 | ES30 | ES31 deriving Show
+
+-- | Resource Region is used to keep track of video memory allocations,
+-- and you should free consumed memory by calling `freeRegion`
+-- when you're sure 
+data ResourceRegion = RR [Int] [Int] [Int]
 
 -- * Core Data Types
 
@@ -39,7 +65,7 @@ instance Eq (AttrId -> VertexAttr) where x == y = x 0 == y 0
 
 instance Show (UniformId -> UniformVar) where show x = show (x 0)
 instance Eq (UniformId -> UniformVar) where x == y = x 0 == y 0
-
+ 
 instance Show (TextureId -> Texture) where show x = show (x 0)
 instance Eq (TextureId -> Texture) where x == y = x 0 == y 0
 -- XXX: DrawTexture Extension
@@ -69,6 +95,8 @@ data Program = Program
 	, progSids :: [ShaderId]
 	}
 	deriving (Show, Eq)
+	-- XXX get/use binary: Maybe (IO ByteString)
+	-- GLManager type: add setAPIVersion, setCompiledProgs[(name,blob)], getAllProgramBinaries
 
 {-data Shader = Shader
 	{ s_type :: ShaderType
@@ -182,7 +210,7 @@ data Texture = Texture
 	, texWidth :: Int
 	, texHeight :: Int
 	, texBorder :: Int
-	, texLevel :: Int
+	, texLevel :: Int -- [Int]?
 	, texId :: TextureId
 	}
 	deriving (Show, Eq)
@@ -227,6 +255,7 @@ data Sampler = SamplerES2
 		, wrapS :: WrapMode
 		, wrapT :: WrapMode
 		}
+		-- 2
 	-- | SamplerES3
 	deriving (Show, Eq)
 
@@ -254,7 +283,7 @@ data DrawConfig = DrawConfig
 
 
 -- * Data-driven Rendering
-
+-- compile,draw,dispose
 drawData :: DrawCall -> IO (Either [String] DrawCall)
 drawData d@(DrawUnit mode prog count attr uni tex conf) = do
 	compiled <- loadProgram prog
@@ -268,6 +297,7 @@ drawData d@(DrawUnit mode prog count attr uni tex conf) = do
 				u <$> getUniformLocation (progId prog) (uniformName $ u 0)
 				) uni
 			-- array buffer
+			-- raise if var not found
 			let tex' = map ($ 0) tex
 			return . Right $ DrawArrays	mode prog count attr' uni' tex' conf
 drawData d@(DrawArrays mode prog count attrs vars tex conf) = do
@@ -441,11 +471,13 @@ getAttribLocation prog name = do
 	withCString name (liftA fromIntegral . glGetAttribLocation prog)
 
 setVertexAttr :: VertexAttr -> IO ()
-setVertexAttr (VertexAttr name typ srcty normalize stride offset array i) = do
+setVertexAttr (VertexAttr name typ srcty normalize stride offset array loc) = do
 	putStrLn name
 	--bindArray array
-	--glVertexAttribPointer i size (marshal srcty) (fromBool normalize) stride offset
-setVertexAttr (ConstantVA name value loc) =
+	--glVertexAttribPointer loc size (marshal srcty) (fromBool normalize) stride offset
+	glEnableVertexAttribArray loc
+setVertexAttr (ConstantVA name value loc) = do
+	glDisableVertexAttribArray loc
 	case value of
 		Attr1f x -> glVertexAttrib1f loc x
 		Attr2f x y -> glVertexAttrib2f loc x y
