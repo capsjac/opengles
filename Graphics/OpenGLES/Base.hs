@@ -269,11 +269,9 @@ module Graphics.OpenGLES.Base (
 	glTexStorage3D,
 	glGetInternalformativ
 	) where
-import Data.Int
-import Data.Word
+import Foreign
 import Foreign.C.String (CString)
 import Foreign.C.Types
-import Foreign.Ptr
 import Graphics.EGL (eglGetProcAddress)
 
 -- * Basic Types
