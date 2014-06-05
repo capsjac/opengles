@@ -6,8 +6,10 @@
 -- http://code.google.com/p/angleproject/
 
 module Graphics.OpenGLES (
+	module Data.Vect,
 	module Graphics.OpenGLES.Base,
 	module Graphics.OpenGLES.Core
 	) where
+import Data.Vect
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Core
