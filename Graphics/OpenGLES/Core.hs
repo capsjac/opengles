@@ -25,14 +25,17 @@ data DrawCall =
 		[UniformId -> UniformVar]
 		[AttrId -> VertexAttr]
 		[TextureRef -> Texture]
-		Indices
-		Indices
+		Int -- ^ First vertex index
+		Int -- ^ The number of vertices to draw
 	| DrawArrays -- ^ Internally used
 		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] !Indices !Indices
+		![UniformVar] ![VertexAttr] ![Texture] !Int !Int
 	| DrawArraysInstanced -- ^ Internally used
 		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] !Indices !Indices
+		![UniformVar] ![VertexAttr] ![Texture] !Int !Int
+	| DrawElements -- ^ Internally used
+		!DrawMode !Program !DrawConfig
+		![UniformVar] ![VertexAttr] ![Texture] --!Count !Indices !IndexType(u8,u16) !ByteOffset
 	| DrawTexture !Vec2 !Vec2 -- XXX DrawImage
 	deriving (Show, Eq)
 
@@ -343,7 +346,7 @@ compileCall
 -}
 
 drawData :: DrawCall -> IO ()
-drawData d@(DrawArrays mode prog conf uniforms attribs texes from to) = do
+drawData (DrawArrays mode prog conf uniforms attribs texes from to) = do
 	-- shader setting
 	let Program _ _ progRef _ = prog
 	withForeignPtr progRef (glUseProgram . ptrToId)
@@ -364,6 +367,7 @@ drawData d@(DrawArrays mode prog conf uniforms attribs texes from to) = do
 	glDepthMask (fromBool $ depthMaskEnable conf)
 
 	glDrawArrays (marshal mode) (fromIntegral from) (fromIntegral to)
+-- DrawArraysInstanced
 -- call glPixelStorei GL_[UN]PACK_ALIGNMENT [1248] before texImage2d
 
 
@@ -382,7 +386,7 @@ type ResourceId = GLuint
 foreign import ccall "wrapper"
 	wrapFinalizerPtr :: (Ptr a -> IO ()) -> IO (FinalizerPtr a)
 
-bindFinalizer :: (GLuint -> IO ()) -> GLuint -> IO (ForeignPtr GLuint)
+bindFinalizer :: (ResourceId -> IO ()) -> ResourceId -> IO (ForeignPtr ResourceId)
 bindFinalizer finalizer i = do
 	f <- wrapFinalizerPtr (\ptr -> finalizer (ptrToId ptr))
 	newForeignPtr f (idToPtr i)
@@ -552,21 +556,21 @@ setVertexAttr va = case va of
 		NoneV -> return ()-}
 	Instanced divNum f loc -> do
 		setVertexAttr (f loc)
-		glVertexAttribDivisor loc divNum
-	BufferSlice _ ref size typ normalize stride offset loc) -> do
+		glVertexAttribDivisor loc (fromIntegral divNum)
+	BufferSlice _ ref size typ normalize stride offset loc -> do
 		withForeignPtr ref (glBindBuffer . ptrToId)
 		glVertexAttribPointer loc size typ normalize stride (idToPtr offset)
 		glEnableVertexAttribArray loc
-	BufferSlicei _ ref size typ normalize stride offset loc) -> do
+	BufferSlicei _ ref size typ normalize stride offset loc -> do
 		withForeignPtr ref (glBindBuffer . ptrToId)
 		glVertexAttribIPointer loc size typ normalize stride (idToPtr offset)
 		glEnableVertexAttribArray loc
-	ConstAttr1f _ x l -> d l >> glVertexAttrib1f loc (r x)
-	ConstAttr2f _ (Vec2 x y) l -> d l >> glVertexAttrib2f loc (r x) (r y)
-	ConstAttr3f _ (Vec3 x y z) l -> d l >> glVertexAttrib3f loc (r x) (r y) (r z)
-	ConstAttr4f _ (Vec4 x y z w) l -> d l >> glVertexAttrib4f loc (r x) (r y) (r z) (r w)
-	ConstAttr4i _ x y z w l -> d l >> glVertexAttribI4i loc x y z w
-	ConstAttr4ui _ x y z w l -> d l >> glVertexAttribI4ui loc x y z w
+	ConstAttr1f _ x loc -> d loc >> glVertexAttrib1f loc (r x)
+	ConstAttr2f _ (Vec2 x y) loc -> d loc >> glVertexAttrib2f loc (r x) (r y)
+	ConstAttr3f _ (Vec3 x y z) l -> d l >> glVertexAttrib3f l (r x) (r y) (r z)
+	ConstAttr4f _ (Vec4 x y z w) l -> d l >> glVertexAttrib4f l (r x) (r y) (r z) (r w)
+	ConstAttr4i _ x y z w loc -> d loc >> glVertexAttribI4i loc x y z w
+	ConstAttr4ui _ x y z w loc -> d loc >> glVertexAttribI4ui loc x y z w
 	where
 		r = realToFrac
 		d = glDisableVertexAttribArray
