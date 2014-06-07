@@ -2,6 +2,7 @@
 -- | GL ES 3.1 is not supported yet.
 module Graphics.OpenGLES.Core where
 import qualified Data.ByteString as B
+import Data.ByteString.Internal (nullForeignPtr, toForeignPtr)
 import Control.Applicative
 import Data.Either
 import Data.Vect
@@ -12,7 +13,6 @@ import Foreign.Marshal.Array
 import Foreign.Marshal.Utils
 import Foreign.Storable
 import Graphics.OpenGLES.Base
-import System.IO.Unsafe (unsafePerformIO)
 
 
 -- * Core Data Types
@@ -25,17 +25,10 @@ data DrawCall =
 		[UniformId -> UniformVar]
 		[AttrId -> VertexAttr]
 		[TextureRef -> Texture]
-		Int -- ^ First vertex index
-		Int -- ^ The number of vertices to draw
-	| DrawArrays -- ^ Internally used
+		VertexPicker
+	| DrawCall
 		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] !Int !Int
-	| DrawArraysInstanced -- ^ Internally used
-		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] !Int !Int
-	| DrawElements -- ^ Internally used
-		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] --!Count !Indices !IndexType(u8,u16) !ByteOffset
+		![UniformVar] ![VertexAttr] ![Texture] !VertexPicker
 	| DrawTexture !Vec2 !Vec2 -- XXX DrawImage
 	deriving (Show, Eq)
 
@@ -54,8 +47,6 @@ type ShaderRef = ForeignPtr GLuint
 type AttrId = GLuint
 type UniformId = GLint
 type TextureRef = ForeignPtr GLuint
-
-nullForeignPtr = unsafePerformIO $ newForeignPtr_ nullPtr
 
 data Blob = Blob !B.ByteString
 	deriving (Show, Eq)
@@ -286,11 +277,35 @@ data WrapMode = Repeat | ClampToEdge | MirroredRepeat
 	deriving (Show, Eq)
 
 
--- ** Vertex Indices
+-- ** Vertex Picker
 
-type Indices = Int
-
-
+-- | VFromCounts -> VFromCounts', VIndex8/16/32 -> VIndex(Instanced)',
+-- VIndices8/16/32 -> VIndices' or DrawCallSequence[VIndex(Instanced)']
+--
+-- Version/Ext fallback feature is not yet. (See above)
+type VertexPicker =
+	  VFromCount !Int !Int
+	| VFromCountInstanced !Int !Int !Int
+	| VFromCounts ![(Int, Int)]
+	| VFromCounts' !ByteString !ByteString
+	-- ^ Wrapping glMultiDrawArraysEXT
+	| VIndex8 ![Word8]
+	| VIndex16 ![Word16]
+	| VIndex32 ![Word32]
+	| VIndex' !BufferRef !GLsizei !GLenum !Int
+	-- ^ Wrapping glDrawElements
+	| VIndexInstanced' !BufferRef !GLsizei !GLenum !Int !GLsizei
+	-- ^ Wrapping glDrawElementsInstanced
+	| VIndices8 ![[Word8]]
+	| VIndices16 ![[Word16]]
+	| VIndices32 ![[Word32]]
+	| VIndices' !ByteString GLenum !ByteString
+	-- ^ Wrapping glMultiDrawElementsEXT
+	-- .| VFromToIndex8/16/32 !Int !Int ![Word8/16/32]
+	-- .| VFromToIndex' !BufferRef !Int !Int !GLsizei !GLenum !Int
+	-- .^ Wrapping glDrawRangeElements
+	| DrawCallSequence [VertexPicker]
+	deriving (Show, Eq)
 
 -- * Data-driven Rendering
 
@@ -346,7 +361,7 @@ compileCall
 -}
 
 drawData :: DrawCall -> IO ()
-drawData (DrawArrays mode prog conf uniforms attribs texes from to) = do
+drawData (DrawCall mode prog conf uniforms attribs texes picker) = do
 	-- shader setting
 	let Program _ _ progRef _ = prog
 	withForeignPtr progRef (glUseProgram . ptrToId)
@@ -366,8 +381,8 @@ drawData (DrawArrays mode prog conf uniforms attribs texes from to) = do
 	setCapability (depthTextEnable conf) DepthTest
 	glDepthMask (fromBool $ depthMaskEnable conf)
 
-	glDrawArrays (marshal mode) (fromIntegral from) (fromIntegral to)
--- DrawArraysInstanced
+	invokeDraw mode picker
+
 -- call glPixelStorei GL_[UN]PACK_ALIGNMENT [1248] before texImage2d
 
 
@@ -665,6 +680,48 @@ disable = glDisable . marshal
 isEnabled :: Capability -> IO Bool
 isEnabled = liftA (/= 0) . glIsEnabled . marshal
 
+withBSBS :: B.ByteString -> B.ByteString
+         -> (Ptr a -> Ptr a -> Int -> IO b)
+         -> b
+withBSBS bs1 bs2 io =
+	withForeignPtr fp1 $ \p1 ->
+		withForeignPtr fp2 $ \p2 ->
+			io p1 p2 len
+	where
+		(fp1,_,len) = toForeignPtr bs1
+		(fp2,_,_) = toForeignPtr bs2
+
+invokeDraw :: DrawMode -> VertexPicker -> IO ()
+invokeDraw mode picker = case picker of
+	VFromCount first count ->
+		glDrawArrays m (int first) (int count)
+	VFromCountInstanced first count primcount ->
+		glDrawArraysInstanced m (int first) (int count) (int primcount)
+	VFromCounts list ->
+		mapM_ (\(fst, cnt) -> glDrawArrays m (int fst) (int cnt)) list
+		--let (first, count) = unzip list in
+		--withArray first $ fptr -> withArray count $ cptr ->
+		--	glDrawMultiArrays m fptr cptr (length list)
+	VFromCounts' firstbs countbs ->
+		withBSBS countbs firstbs $ \cptr fptr clen ->
+			glDrawMultiArrays m fptr cptr
+				(int clen `div` sizeOf (0 :: GLsizei))
+	VIndex' ref count typ offset ->
+		-- bind GL_ELEMENT_ARRAY_BUFFER = 0x8893
+		withForeignPtr ref (glBindBuffer 0x8893 . ptrToId)
+		glDrawElements m count typ (idToPtr offset)
+	VIndexInstanced' ref count typ offset divNum ->
+		glDrawElementsInstanced m count typ (idToPtr offset) divNum
+	--VIndices8/16/32 ... ->
+	VIndices' countbs typ indicesbs ->
+		withBSBS countbs indicesbs $ \cptr iptr clen ->
+			glDrawMultiElements m cptr typ iptr
+				(int clen `div` sizeOf (0 :: GLsizei))
+	-- VFromToIndex' ...
+	_ -> error $ "invokeDraw: VertexPicker (" ++ show picker ++ ") must be compiled."
+	where
+		m = marshal mode
+		int = fromIntegral
 
 -- ** Vector Utils
 
