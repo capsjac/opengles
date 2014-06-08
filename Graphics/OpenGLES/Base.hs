@@ -164,6 +164,7 @@ module Graphics.OpenGLES.Base (
 	glVertexAttrib4fv,
 	glVertexAttribPointer,
 	glViewport,
+
 	glReadBuffer,
 	glDrawRangeElements,
 	glTexImage3D,
@@ -267,7 +268,11 @@ module Graphics.OpenGLES.Base (
 	glInvalidateSubFramebuffer,
 	glTexStorage2D,
 	glTexStorage3D,
-	glGetInternalformativ
+	glGetInternalformativ,
+
+	glDrawTexiOES,
+	glMultiDrawArraysEXT,
+	glMultiDrawElementsEXT
 	) where
 import Foreign
 import Foreign.C.String (CString)
@@ -612,4 +617,9 @@ GL_PROC(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> 
 GL_PROC(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> IO ())
 GL_PROC(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> IO ())
+
+-- ** Extensions
+GL_PROC(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> IO ())
+GL_PROC(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> IO ())
+GL_PROC(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> IO ())
 

@@ -8,7 +8,6 @@ import qualified Graphics.UI.GLFW as GLFW
 import Data.Array.ST (newArray, getElems, MArray, STUArray)
 import Data.Array.Unsafe (castSTUArray)
 import GHC.ST (runST, ST)
-
 data Context = Context
 	deriving Show
 
@@ -31,10 +30,10 @@ main = do
 	wdim@(w,h) <- GLFW.getWindowSize win
 
 	cont <- return Context
-	--viewport 0 0 w h
-	--glClearColor 1 1 1 1
+	glViewport 0 0 (fromIntegral w) (fromIntegral h)
+	glClearColor 0.5 1 1 1
+	
 	mainloop win cont
-	return cont
 	
 	GLFW.destroyWindow win
 	GLFW.terminate
@@ -42,9 +41,14 @@ main = do
 resizeCallback _ w h = return ()
 
 mainloop win cont = do
-	r <- mapM drawData awesomeObject
-	putStrLn $ show r
-	case r of [Right ok] -> drawData ok
+	glClear 0x4000
+	glm <- initGLManager
+	putStrLn "### "
+	call <- compileCall glm awesomeObject
+	putStrLn $ show call
+	putStrLn "==="
+	case call of Right ok -> drawData ok
+	putStrLn "### All OK"
 
 	GLFW.swapBuffers win
 	GLFW.pollEvents
@@ -74,22 +78,20 @@ cast :: Float -> [Word8]
 cast x = runST (newArray (0 :: Int, 3) x >>= castSTUArray >>= getElems)
 
 awesomeObject =
-	[ DrawUnit
+	DrawUnit
 		TriangleStrip
 		(Program "test"
-			[ VertexShader "test.vs" (Blob vertexShader2)
-			, FragmentShader "test.fs" (Blob fragmentShader2)
-			])
-		4
-		[ VertexAttr "pos" F2 FloatT False (4*2+1*4) 0 packedBlob
-		, VertexAttr "color" F4 UByteT True (4*2+1*4) (4*2) packedBlob
+			[ VertexShader "test.vs" vertexShader2
+			, FragmentShader "test.fs" fragmentShader2 ])
+		(DrawConfig True True False False)
+		[ UniformVar "scaleRot" $ UniformMat2 (structMat2 [1,0,0,1])
+		, UniformVar "offset" $ Uniform2f (Vec2 0 0)
 		]
-		[ UniformVar "scaleRot" (UniformMatrix2 1 0 0 1)
-		, UniformVar "offset" (Uniform2f 0 0)
+		[ Vertex "pos" (FloatV 2 [-0.7,-0.7,0.7,-0.7,-0.7,0.7,0.7,0.7])
+		, NormalizedVertex "color" (UByteV 3 [0,255,0, 0,0,255, 255,0,0, 0,255,255])
 		]
 		[]
-		(DrawConfig True True False False)
-	]
+		(VFromCount 0 4)
 
 vertexShader2 = BS.pack $
 	"#version 100\n" ++
