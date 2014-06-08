@@ -1,13 +1,10 @@
 module Main where
 import Control.Concurrent (threadDelay)
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
-import Data.Word (Word8)
 import Graphics.OpenGLES
 import qualified Graphics.UI.GLFW as GLFW
-import Data.Array.ST (newArray, getElems, MArray, STUArray)
-import Data.Array.Unsafe (castSTUArray)
-import GHC.ST (runST, ST)
+
+
 data Context = Context
 	deriving Show
 
@@ -43,10 +40,10 @@ resizeCallback _ w h = return ()
 mainloop win cont = do
 	glClear 0x4000
 	glm <- initGLManager
-	putStrLn "### "
+	putStrLn "### Start Compile"
 	call <- compileCall glm awesomeObject
 	putStrLn $ show call
-	putStrLn "==="
+	putStrLn "=== Rendering"
 	case call of Right ok -> drawData ok
 	putStrLn "### All OK"
 
@@ -58,24 +55,6 @@ mainloop win cont = do
 	if shouldExit
 		then return ()
 		else mainloop win cont
-
-
-data BufferMarkup = BufferMarkup [String] [String]
-
-packToBlob :: BufferMarkup -> Blob
-packToBlob (BufferMarkup types values) =
-	Blob $ B.concat $ zipWith toBS (cycle types) values
-
-toBS :: String -> String -> B.ByteString
-toBS "float" v = B.pack $ cast (read v)
-toBS "hex" v = B.pack $ map (read.("0x"++)) (chunkOf v)
-
-chunkOf [] = []
-chunkOf (a:b:xs) = [a, b] : chunkOf xs
-
-{-# INLINE cast #-}
-cast :: Float -> [Word8]
-cast x = runST (newArray (0 :: Int, 3) x >>= castSTUArray >>= getElems)
 
 awesomeObject =
 	DrawUnit
@@ -113,12 +92,3 @@ fragmentShader2 = BS.pack $
 	"    gl_FragColor = vColor;\n" ++
 	"}\n"
 
-packedBlob = packToBlob vertexColors
-
-vertexColors = BufferMarkup
-	["float", "float", "hex"]
-	["-0.7", "-0.7", "00FF00"
-	, "0.7", "-0.7", "0000FF"
-	,"-0.7",  "0.7", "FF0000"
-	, "0.7",  "0.7", "00FFFF"
-	]
