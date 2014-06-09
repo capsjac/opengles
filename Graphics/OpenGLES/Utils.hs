@@ -1,10 +1,12 @@
 module Graphics.OpenGLES.Utils where
-import Data.Array.ST (newArray, getElems, MArray, STUArray)
-import Data.Array.Unsafe (castSTUArray)
+--import Data.Array.ST (newArray, getElems, MArray, STUArray)
+--import Data.Array.Unsafe (castSTUArray)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BS
 import Data.Vect
-import Data.Word (Word8)
-import GHC.ST (runST, ST)
+--import Data.Word (Word8)
+--import GHC.ST (runST, ST)
+import Graphics.OpenGLES.Core (Program(..), Shader(..))
 
 
 structMat2 :: [Float] -> Mat2
@@ -65,7 +67,7 @@ inverseFrustumMatrix (l,r) (b,t) (n,f) = Mat4
 	(Vec4 (0.5*(r+l)/n) (0.5*(t+b)/n) (-1) (0.5*(f+n)/(f*n)))
 
 
-
+{-
 data BufferMarkup = BufferMarkup [String] [String]
 
 packToBlob :: BufferMarkup -> Blob
@@ -92,3 +94,38 @@ vertexColors = BufferMarkup
 	,"-0.7",  "0.7", "FF0000"
 	, "0.7",  "0.7", "00FFFF"
 	]
+-}
+
+pureProgram = Program "Graphics.OpenGLES.Utils.pureProgram"
+	[ VertexShader "pureVertexShader" pureVertexShader
+	, FragmentShader "pureFragmentShader" pureFragmentShader
+	]
+
+pureVertexShader = BS.pack $
+	"#version 100\n" ++
+	"attribute vec4 pos;\n" ++
+	"attribute vec4 color;\n" ++
+	"varying vec4 vColor;\n" ++
+	"void main() {\n" ++
+	"    gl_Position = pos;\n" ++
+	"    vColor = color;\n" ++
+	"}\n"
+
+pureFragmentShader = BS.pack $
+	"#version 100\n" ++
+	"precision mediump float;\n" ++
+	"varying vec4 vColor;\n" ++
+	"void main() {\n" ++
+	"    gl_FragColor = vColor;\n" ++
+	"}\n"
+
+-- sequence [($ cos (x/100)) | x <- [0..100]] (\x -> Vec3 0 x 0)
+-- [Vec2 x $ sin (x/50) | x <- [0..100]]
+
+circle2d n | n > 1 = [Vec2 (cos t) (sin t) | t <- [0,2*pi/n..2*pi]]
+
+rect x y w h = [Vec2 x y, Vec2 (x+w) y, Vec2 (x+w) (y+h), Vec2 x (y+h)]
+
+yEqual f from to = [Vec2 x (f x) | x <- [from..to]]
+
+xEqual g from to = [Vec2 (g y) y | y <- [from..to]]
