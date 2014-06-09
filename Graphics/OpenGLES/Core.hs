@@ -326,7 +326,8 @@ data GLManager = GLManager
 	, compiledProgramCache :: IORef [(String, B.ByteString)]
 	-- ^ get/set after/before program linkage
 	--, glRefHolder :: [ForeignPtr GLuint]
-	}
+	} deriving Show
+instance Show (IORef a) where show = const "(IORef ..)"
 
 data GLVersion = ES2 | ES3 | ES31 deriving Show
 
@@ -339,7 +340,7 @@ initGLManager = newIORef [] >>= return . GLManager ES2
 compileCall :: GLManager -- ^ API version and program binary caches
             -> DrawCall -- ^ DrawCall to compile
             -> IO (Either [String] DrawCall) -- ^ Return errors or compiled call
-compileCall (GLManager version cache)
+compileCall glm@(GLManager version cache)
 	(DrawUnit mode prog conf uniforms attribs texes picker) = do
 
 	let Program progName shaders _ _ = prog nullFPtr []
@@ -353,7 +354,7 @@ compileCall (GLManager version cache)
 					return . Right $ prog fpid []
 				Nothing -> return $ Left ["Broken program binary cache: " ++ progName]
 		Nothing -> do
-			either <- loadProgram progName shaders
+			either <- loadProgram glm progName shaders
 			eitherIO either $ \(x : xs) -> do
 				-- TODO create cache here
 				p <- bindFinalizer (glDeleteProgram x) x
@@ -492,10 +493,10 @@ instance Marshal ProgramProps where
 		ActiveUniformMaxLength -> 0x8B8A
 		-- ......
 
-loadProgram :: String -> [Shader] -> IO (Either [String] [ResourceId])
-loadProgram progname shaders = do
+loadProgram :: GLManager -> String -> [Shader] -> IO (Either [String] [ResourceId])
+loadProgram glm progname shaders = do
 	results <- mapM loadShader shaders
-	putStrLn $ show results
+	-- putStrLn $ show results
 	let (errors, resids) = partitionEithers results
 	if errors /= [] then return $ Left errors
 	else do
@@ -669,6 +670,9 @@ compilePicker instanced vp = case vp of
 	VIndex16 index -> return vp -- XXX
 	VIndex32 index -> return vp -- XXX
 	VIndex' bref count typ offset -> return vp
+	VIndexInstanced8 index divNum -> return vp -- XXX
+	VIndexInstanced16 index divNum -> return vp -- XXX
+	VIndexInstanced32 index divNum -> return vp -- XXX
 	VIndexInstanced' bref count typ offset divNum -> return vp
 	VIndices8 indices ->
 		DrawCallSequence <$> mapM (compilePicker False . VIndex8) indices

@@ -26,7 +26,8 @@ library
     Graphics.EGL,
     Graphics.OpenGLES,
     Graphics.OpenGLES.Base,
-    Graphics.OpenGLES.Core
+    Graphics.OpenGLES.Core,
+    Graphics.OpenGLES.Utils
   
   other-extensions: ForeignFunctionInterface
   extra-libraries: EGL

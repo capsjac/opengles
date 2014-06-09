@@ -1,7 +1,9 @@
+-- ghc -lEGL example1.hs  && ./example1
 module Main where
 import Control.Concurrent (threadDelay)
 import qualified Data.ByteString.Char8 as BS
 import Graphics.OpenGLES
+import Graphics.OpenGLES.Utils
 import qualified Graphics.UI.GLFW as GLFW
 
 
