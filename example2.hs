@@ -103,7 +103,6 @@ mainloop cxt@Context{..} = do
 	es2draw cxt
 	--putStr "drawn " >> getCurrentTime >>= putStrLn . show
 	
-
 	-- endFrame
 	GLFW.swapBuffers win
 	--putStr "swapd " >> getCurrentTime >>= putStrLn . show

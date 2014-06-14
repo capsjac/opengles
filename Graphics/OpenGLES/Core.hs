@@ -376,10 +376,11 @@ compileCall glm@(GLManager version cache)
 			let name = uniformName $ u 0
 			i <- getUniformLocation pid name
 			showError $ "glGetUniformLocation" ++ show (progName, name, i)
-			if i < 0 then error $ "Uniform variable '" ++ name
-				++ "' was not found in shader program '" ++ progName
-				++ "'"
-			else return $ u i
+			--if i < 0 then error $ "Uniform variable '" ++ name
+			--	++ "' was not found in shader program '" ++ progName
+			--	++ "'"
+			--else
+			return $ u i
 
 		attrs <- mapM compileVertexAttr attr'
 		
@@ -488,6 +489,7 @@ instance Marshal ProgramProps where
 		DeleteStatus -> 0x8B80
 		LinkStatus -> 0x8B82
 		ValidateStatus -> 0x8B83
+		ProgramInfoLogLength -> 0x8B84
 		AttachedShaders -> 0x8B85
 		ActiveAttributes -> 0x8B89
 		ActiveUniformMaxLength -> 0x8B8A

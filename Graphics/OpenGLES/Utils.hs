@@ -102,7 +102,7 @@ pureProgram = Program "Graphics.OpenGLES.Utils.pureProgram"
 	]
 
 pureVertexShader = BS.pack $
-	"#version 100\n" ++
+	--"#version 100\n" ++
 	"attribute vec4 pos;\n" ++
 	"attribute vec4 color;\n" ++
 	"varying vec4 vColor;\n" ++
