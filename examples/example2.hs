@@ -21,6 +21,7 @@ main = do
 	--GLFW.swapInterval 1
 	(w, h) <- GLFW.getWindowSize win
 	
+	--disable Dither
 	glViewport 0 0 (fromIntegral w) (fromIntegral h)
 	glClearColor 0.2 0.2 0.3 1.0
 	
@@ -95,21 +96,18 @@ fragmentShader = BS.pack $
 mainloop :: Context -> IO ()
 mainloop cxt@Context{..} = do
 	-- beginFrame
-	--disable Dither
+	GLFW.pollEvents
+	
 	--putStr "start " >> getCurrentTime >>= putStrLn . show
 	glClear 0x4000
 	--putStr "clear " >> getCurrentTime >>= putStrLn . show
-	
 	es2draw cxt
 	--putStr "drawn " >> getCurrentTime >>= putStrLn . show
-	
-	-- endFrame
 	GLFW.swapBuffers win
 	--putStr "swapd " >> getCurrentTime >>= putStrLn . show
-
-	GLFW.pollEvents
+	-- endFrame
+	
 	--threadDelay 16667
-
 	shouldExit <- GLFW.windowShouldClose win
 	if shouldExit || loopcount > 1000
 		then return ()
