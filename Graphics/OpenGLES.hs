@@ -3,7 +3,7 @@
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
 -- 
 -- ANGLE: OpenGL ES 2.0 backend for Windows.
--- http://code.google.com/p/angleproject/
+-- <http://code.google.com/p/angleproject/>
 
 module Graphics.OpenGLES (
 	module Data.Vect,

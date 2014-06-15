@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
--- | definition from <gl3.h>
+-- | definition from gl3.h
 module Graphics.OpenGLES.Base (
 	GLboolean,
 	GLbyte,
