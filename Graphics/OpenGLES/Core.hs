@@ -17,18 +17,21 @@ import Graphics.OpenGLES.Base
 -- * Core Data Types
 
 data DrawCall =
-	  DrawUnit -- ^ You should use this constructor.
+	  DrawUnit
 		DrawMode
 		(ProgramRef -> [ShaderRef] -> Program)
-		DrawConfig
+		[GraphicState]
 		[UniformId -> UniformVar]
 		[AttrId -> VertexAttr]
-		[TextureRef -> Texture]
 		VertexPicker
 	| DrawCall
-		!DrawMode !Program !DrawConfig
-		![UniformVar] ![VertexAttr] ![Texture] !VertexPicker
+		!DrawMode !Program ![GraphicState]
+		![UniformVar] ![VertexAttr] !VertexPicker
 	| DrawTexture !TextureRef !Int !Int !Int !Int !Int !Int !Int !Int !Int -- add DrawConfig?
+	| SetGraphicState [GraphicState]
+	-- .|WaitForFinishTimeout Bool Int64
+	-- .^ ES 3.0 required. set GL_SYNC_FLUSH_COMMANDS_BIT or not, timeout in nanoseconds
+	-- .| EnsureGPUFinish -- ^ ES 3.0 required. Nonblock
 	deriving (Show, Eq)
 
 instance Show (ProgramRef -> [ShaderRef] -> Program) where show x = show (x nullFPtr [])
@@ -58,17 +61,17 @@ data DrawMode = Points | Lines | LineLoop | LineStrip
 
 
 -- ** Shader
-
+-- | [String] A program name. This name will be shown in error messages and used as binary cache key.
+-- 
+-- [Shaders] One or more 'VertexShader' and 'FragmentShader' can be specified.
+-- Note: Only 1 main() is allowed for each type of shaders.
 data Program =
-	Program
-		String  -- ^ A program name. This name will be shown in error messages and used as binary cache key.
-		[Shader] -- ^ Shaders. One or more 'VertexShader' and 'FragmentShader' can be specified. Note: Only 1 main() is allowed for each type of shaders.
-		!ProgramRef
-		[ShaderRef]
+	Program String [Shader] !ProgramRef [ShaderRef]
 	deriving (Show, Eq)
 	-- GLManager type: add setAPIVersion, setCompiledProgs[(name,blob)], getAllProgramBinaries
 
--- | Shader encoding is UTF-8 (ES 3.0+) or ASCII (2.0).
+-- | [String] Name of the shader.
+-- [ByteString] Shader's source code. Encoding is UTF-8 (ES 3.0+) or ASCII (2.0).
 data Shader =
 	  VertexShader String B.ByteString
 	| FragmentShader String B.ByteString
@@ -77,26 +80,96 @@ data Shader =
 
 -- ** Graphic State
 
-data DrawConfig = DrawConfig
-	{ blendEnable :: !Bool
-	, cullFaceEnable :: !Bool
-	, depthMaskEnable :: !Bool
-	, depthTextEnable :: !Bool
-	}
+-- | Draw configurations on Rasterization and Per-Fragment Operations.
+-- Note: Graphic state is sticky.
+data GraphicState =
+	  Use Capability -- ^ Enable capability persistently.
+	| Unuse Capability -- ^ Disable capability persistently.
+	 
+	| LineWidth Float
+	| FrontFace Bool
+	-- ^ Whether counter-wise or not
+	| CullFaceMode CullFace
+	-- ^ Which side of polygons should be rasterized, cannot used with DepthTest
+	| PolygonOffset Float Float -- ^ Factor and Units
+
+	| Scissor Int Int Int Int -- ^ (!!) left, bottom, width, height
+	| SampleCvrg Float Bool -- ^ float[0,1] value, invert
+	| StencilFunc CompFunc Int32 Word32 -- ^ comp, mask value
+	| StencilFuncSeparate CullFace CompFunc Int32 Word32
+	| StencilOp StencilOp StencilOp StencilOp -- ^ sfail, dpfail, dppass
+	| StencilOpSeparate CullFace StencilOp StencilOp StencilOp
+	| DepthFunc CompFunc
+	| BlendEquation BlendOp -- ^ mode 
+	| BlendEquationSeparate BlendOp BlendOp -- ^ modeRGB, modeAlpha
+	| BlendFunc BlendingFactor BlendingFactor -- ^ src, dest
+	| BlendFuncSeparate BlendingFactor BlendingFactor
+	                    BlendingFactor BlendingFactor
+	-- ^ srcRGB, dstRGB, srcAlpha, dstAlpha
+	| BlendColor Float Float Float Float
+	-- ^ red, green, blue and alpha value range [0,1]
+	| GenerateMipmapHint Hint
+	| FragmentShaderDerivativeHint Hint -- ^ introduced in ES 3.0
+	deriving (Show, Eq)
+
+data Capability =
+	  CullFace
+	| Blend -- ^ Applies to all draw buffers
+	| Dither
+	| StencilTest
+	| DepthTest
+	| ScissorTest
+	| PolygonOffsetFill
+	| SampleAlphaToCoverage
+	| SampleCoverage
+	| PrimitiveRestartFixedIndex -- ^ introduced in ES 3.0
+	| RasterizerDiscard -- ^ introduced in ES 3.0
+	| SampleMask -- ^ introduced in ES 3.1
+	deriving (Show, Eq)
+
+data CullFace = Front | Back | FrontAndBack
+	deriving (Show, Eq)
+
+data CompFunc =
+	  Never | Less | Equal | LEqual | Greater
+	| NotEqual | GEqual | Always
+	deriving (Show, Eq)
+
+data StencilOp =
+	  OpZero | OpKeep | OpReplace | OpIncr
+	| OpDecr | OpInvert | OpIncrWrap | OpDecrWrap
+	deriving (Show, Eq)
+
+data BlendOp = Add | Sub | ReverseSub
+	deriving (Show, Eq)
+
+data BlendingFactor =
+	  FactorZero | FactorOne
+	| SrcColor | OneMinusSrcColor
+	| DstColor | OneMinusDstColor
+	| SrcAlpha | OneMinusSrcAlpha
+	| DstAlpha | OneMinusDstAlpha
+	| ConstColor | OneMinusConstColor
+	| ConstAlpha | OneMinusConstAlpha
+	| SrcAlphaSaturate -- ^ src only
+	deriving (Show, Eq)
+
+data Hint = DontCare | Fastest | Nicest
 	deriving (Show, Eq)
 
 
 -- ** Vertex Attribute
 
+-- | [String] Variable name to bind the vertex attribute
 data VertexAttr =
 	  Vertex String VertexData AttrId
-	-- ^ for vec[1234]
+	-- ^ for vec[1234] Floating integer data per vertex
 	| NormalizedVertex String VertexData AttrId
-	-- ^ Given values are clamped to [0,1] ([-1,1] if signed type.)
+	-- ^ for vec[1234] Clamp values to [0,1] ([-1,1] if signed)
 	| IntVertex String VertexData AttrId
-	-- ^ for ivec[1234]
+	-- ^ for ivec[1234] Integer variant of Vertex
 	| Instanced !Int !(AttrId -> VertexAttr) !AttrId
-	-- ^ Treat as: let vertexList' = concat $ map (replicate instanceNum) vertexList
+	-- ^ Treat as: let vertexList' = concatMap (replicate instanceNum) vertexList
 	| BufferSlice String !BufferRef !GLint !GLenum !GLboolean !GLsizei !Int !AttrId
 	-- ^ Internally used. Wrapping glVertexAttribPointer()
 	| BufferSlicei String !BufferRef !GLint !GLenum !GLsizei !Int !AttrId
@@ -120,6 +193,8 @@ attrVarName x = case x of
 	ConstAttr4i s _ _ _ _ _ -> s; ConstAttr4ui s _ _ _ _ _ -> s;
 
 -- | Vector array
+-- 
+-- [Int] Dimentions of the vector
 data VertexData =
 	  ByteV Int [Int8]
 	| UByteV Int [Word8]
@@ -130,8 +205,8 @@ data VertexData =
 	-- | HalfFloatV Int [Word16?]
 	| FloatV Int [Float]
 	-- | FixedV Int [Word32?]
-	-- | I2_10_10_10V [Word32]
-	-- | UI2_10_10_10V [Word32]
+	| I2_10_10_10V [Int32]
+	| UI2_10_10_10V [Word32]
 	-- | BlobSliced
 	| NoneV -- ^ Do nothing. For early development.
 	deriving (Show, Eq)
@@ -171,8 +246,8 @@ data UniformValue =
 	| UniformMat2v ![Mat2]
 	| UniformMat3v ![Mat3]
 	| UniformMat4v ![Mat4]
-	| UniformSampler !GLint -- XXX
-	| UniformSamplers ![GLint]
+	| UniformTexture !Texture
+	| UniformTextures ![Texture]
 	-- ES 3.0
 	| Uniform1ui !GLuint
 	| Uniform2ui !(GLuint, GLuint)
@@ -206,18 +281,27 @@ deriving instance Eq Mat4
 
 -- ** Texture
 
-data Texture = Texture
-	{ texTarget :: TextureTarget
-	, texColorFormat :: TextureColorFormat
-	, texBitLayout :: TextureBitLayout
-	, texInternalFormat :: TextureInternalFormat
-	, texSampler :: Sampler
-	, texWidth :: Int
-	, texHeight :: Int
-	, texBorder :: Int
-	, texLevel :: Int -- [Int]?
-	, texRef :: TextureRef
-	}
+data Texture =
+	  Texture
+		{ texName :: String
+		, texTarget :: TextureTarget
+		, texColorFormat :: TextureColorFormat
+		, texBitLayout :: TextureBitLayout
+		, texInternalFormat :: TextureInternalFormat
+		, texSampler :: Sampler
+		, texWidth :: Int
+		, texHeight :: Int
+		, texBorder :: Int
+		, texLevel :: Int -- [Int]?
+		-- texUnit :: Maybe Int 0..31
+		}
+	| Texture'
+		{ -- add width,height,... good for debug?
+		  texName :: String
+		, texSampler :: Sampler
+		, texRef :: TextureRef
+		-- texUnit :: Int
+		}
 	deriving (Show, Eq)
 
 data TextureTarget =
@@ -257,19 +341,19 @@ data TextureData =
 	| ATITC -- ATI Imageon, Qualcomm Adreno
 	| S3TC -- NVIDIA Tegra2, ZiiLabs ZMS-08 HD
 	| ETC1 -- Android, ARM Mali
-	-- | _3Dc -- ATI, NVidia
-	-- | Palette
+	-- .| _3Dc -- ATI, NVidia
+	-- .| Palette
 
 -- ** Sampler
 
-data Sampler = SamplerES2
+data Sampler = Sampler2D
 		{ magFilter :: !MagFilter
 		, minFilter :: !MinFilter
 		, wrapS :: !WrapMode
 		, wrapT :: !WrapMode
 		}
 		-- 2
-	-- | SamplerES3
+	-- .| SamplerES3
 	deriving (Show, Eq)
 
 data MagFilter = MagNearest | MagLinear
@@ -336,12 +420,13 @@ initGLManager = newIORef [] >>= return . GLManager ES2
 
 -- ** Draw
 -- | Allocate video memory for rendering in advance and compile a call
--- that optimised for the running platform.
+-- that optimised for the running environment.
 compileCall :: GLManager -- ^ API version and program binary caches
             -> DrawCall -- ^ DrawCall to compile
             -> IO (Either [String] DrawCall) -- ^ Return errors or compiled call
 compileCall glm@(GLManager version cache)
-	(DrawUnit mode prog conf uniforms attribs texes picker) = do
+	-- TODO split into small compilers
+	(DrawUnit mode prog conf uniforms attribs picker) = do
 
 	let Program progName shaders _ _ = prog nullFPtr []
 	caches <- readIORef cache
@@ -384,10 +469,11 @@ compileCall glm@(GLManager version cache)
 
 		attrs <- mapM compileVertexAttr attr'
 		
-		let textures = map ($ nullFPtr) texes
+		-- unifs <- foldr compileTexture (-1) unifs'
+		-- call glPixelStorei GL_[UN]PACK_ALIGNMENT [1248] before texImage2d
 		
 		picker' <- compilePicker False picker
-		return . Right $ DrawCall mode prog conf unifs attrs textures picker'
+		return . Right $ DrawCall mode prog conf unifs attrs picker'
 
 	return d
 
@@ -396,7 +482,10 @@ eitherIO (Right r) f = f r
 eitherIO (Left l) _ = return (Left l)
 
 drawData :: DrawCall -> IO ()
-drawData (DrawCall mode prog conf uniforms attribs texes picker) = do
+drawData (DrawCall mode prog conf uniforms attribs picker) = do
+	-- draw config
+	mapM_ setGraphicState conf
+
 	-- shader setting
 	let Program _ _ progRef _ = prog
 	withForeignPtr progRef (glUseProgram . ptrToId)
@@ -408,15 +497,11 @@ drawData (DrawCall mode prog conf uniforms attribs texes picker) = do
 	mapM_ setUniformVar uniforms
 	
 	-- texture
-	-- call glPixelStorei GL_[UN]PACK_ALIGNMENT [1248] before texImage2d
-
-	-- draw config
-	let setCapability bool = if bool then enable else disable
-	setCapability (blendEnable conf) Blend
-	setCapability (cullFaceEnable conf) CullFace
-	setCapability (depthTextEnable conf) DepthTest
-	glDepthMask (fromBool $ depthMaskEnable conf)
-
+	-- glActiveTexture(0-31)
+	-- glBindTexture 2D texRef
+	-- glBindSampler ...
+	-- glUniform1i unifid 0-31
+	
 	invokeDraw mode picker
 
 drawData (DrawTexture ref u v tw th x y z w h) = do
@@ -440,7 +525,7 @@ ptrToId ptr = fromIntegral $ ptr `minusPtr` nullPtr
 finalize = finalizeForeignPtr
 
 
--- ** Wrappers
+-- ** Error
 data GLError = NoError | InvalidEnum | InvalidValue | InvalidOperation
              | OutOfMemory | InvalidFrameBufferOperation deriving Show
 
@@ -462,6 +547,9 @@ showError location = do
 
 -- | fromEnum alternative
 class Marshal a where marshal :: (Num n) => a -> n
+
+
+-- ** Compiling
 
 instance Marshal DrawMode where
 	marshal x = case x of
@@ -695,6 +783,100 @@ compilePicker instanced vp = case vp of
 		DrawCallSequence <$> mapM (compilePicker instanced) xs
 	where size = fromIntegral :: (Integral a) => a -> GLsizei
 
+
+-- ** Drawing
+
+instance Marshal CullFace where
+	marshal Front        = 0x0404
+	marshal Back         = 0x0405
+	marshal FrontAndBack = 0x0408
+
+instance Marshal CompFunc where
+	marshal x = case x of
+		Never    -> 0x0200
+		Less     -> 0x0201
+		Equal    -> 0x0202
+		LEqual   -> 0x0203
+		Greater  -> 0x0204
+		NotEqual -> 0x0205
+		GEqual   -> 0x0206
+		Always   -> 0x0207
+
+instance Marshal StencilOp where
+	marshal x = case x of
+		OpZero     -> 0x0000
+		OpKeep     -> 0x1E00
+		OpReplace  -> 0x1E01
+		OpIncr     -> 0x1E02
+		OpDecr     -> 0x1E03
+		OpInvert   -> 0x150A
+		OpIncrWrap -> 0x8507
+		OpDecrWrap -> 0x8508
+
+instance Marshal BlendOp where
+	marshal Add        = 0x8006
+	marshal Sub        = 0x800A
+	marshal ReverseSub = 0x800B
+
+instance Marshal BlendingFactor where
+	marshal x = case x of
+		FactorZero         -> 0
+		FactorOne          -> 1
+		SrcColor           -> 0x300
+		OneMinusSrcColor   -> 0x301
+		SrcAlpha           -> 0x302
+		OneMinusSrcAlpha   -> 0x303
+		DstAlpha           -> 0x304
+		OneMinusDstAlpha   -> 0x305
+		DstColor           -> 0x306
+		OneMinusDstColor   -> 0x307
+		SrcAlphaSaturate   -> 0x308
+		ConstColor         -> 0x8001
+		OneMinusConstColor -> 0x8002
+		ConstAlpha         -> 0x8003
+		OneMinusConstAlpha -> 0x8004
+
+instance Marshal Hint where
+	marshal DontCare = 0x1100
+	marshal Fastest  = 0x1101
+	marshal Nicest   = 0x1102
+
+setGraphicState :: GraphicState -> IO ()
+setGraphicState x = case x of
+	Use cap -> glEnable (marshal cap)
+	Unuse cap -> glDisable (marshal cap)
+	LineWidth width -> glLineWidth (realToFrac width)
+	FrontFace cw -> glFrontFace (if cw then 0x900 else 0x901)
+	CullFaceMode cf -> glCullFace (marshal cf)
+	PolygonOffset factor units ->
+		glPolygonOffset (realToFrac factor) (realToFrac units)
+	Scissor l b w h -> glScissor (i l) (i b) (i w) (i h)
+		where i = fromIntegral
+	SampleCvrg value invert ->
+		glSampleCoverage (realToFrac value) (if invert then 1 else 0)
+	StencilFunc func comp mask ->
+		glStencilFunc (marshal func) (fromIntegral comp) (fromIntegral mask)
+	StencilFuncSeparate cull f c m ->
+		glStencilFuncSeparate (marshal cull) (marshal f)
+			(fromIntegral c) (fromIntegral m)
+	StencilOp sfail dpfail dppass ->
+		glStencilOp (marshal sfail) (marshal dpfail) (marshal dppass)
+	StencilOpSeparate cull sfail dpfail dppass ->
+		glStencilOpSeparate (marshal cull) (marshal sfail)
+			(marshal dpfail) (marshal dppass)
+	DepthFunc comp -> glDepthFunc (marshal comp)
+	BlendEquation mode -> glBlendEquation (marshal mode)
+	BlendEquationSeparate rgb a ->
+		glBlendEquationSeparate (marshal rgb) (marshal a)
+	BlendFunc src dest -> glBlendFunc (marshal src) (marshal dest)
+	BlendFuncSeparate srgb drgb salpha dalpha ->
+		glBlendFuncSeparate (marshal srgb) (marshal drgb)
+			(marshal salpha) (marshal dalpha)
+	BlendColor r g b a -> glBlendColor (f r) (f g) (f b) (f a)
+		where f = realToFrac
+	GenerateMipmapHint hint -> glHint 0x8192 (marshal hint)
+	FragmentShaderDerivativeHint hint -> glHint 0x8B8B (marshal hint)
+
 setVertexAttr :: VertexAttr -> IO ()
 setVertexAttr va = case va of
 	Vertex _ va loc -> error "setVertexAttr: VertexAttr must be compiled!"
@@ -749,8 +931,8 @@ setUniformVar (UniformVar _ val loc) =
 		UniformMat2v mx -> withArray mx (glUniformMatrix2fv loc (len mx) 1 . castPtr)
 		UniformMat3v mx -> withArray mx (glUniformMatrix3fv loc (len mx) 1 . castPtr)
 		UniformMat4v mx -> withArray mx (glUniformMatrix4fv loc (len mx) 1 . castPtr)
-		UniformSampler x -> glUniform1i loc x
-		UniformSamplers xs -> withArray xs (glUniform1iv loc (len xs))
+		--UniformTexture x -> glUniform1i loc x
+		--UniformTextures xs -> withArray xs (glUniform1iv loc (len xs))
 		Uniform1ui x -> glUniform1ui loc x
 		Uniform2ui (x,y) -> glUniform2ui loc x y
 		Uniform3ui (x,y,z) -> glUniform3ui loc x y z
@@ -777,24 +959,9 @@ setUniformVar (UniformVar _ val loc) =
 	| UniformMat4x3v ![(Vec4, Vec4, Vec4)]
 	-}
 
-data Capability =
-	  Texture2D
-	| CullFace
-	| Blend
-	| Dither
-	| StencilTest
-	| DepthTest
-	| ScissorTest
-	| PolygonOffsetFill
-	| SampleAlphaToCoverage
-	| SampleCoverage
-	| PrimitiveRestartFixedIndex -- ^ introduced in ES 3.0
-	| RasterizerDiscard -- ^ introduced in ES 3.0
-	-- | SampleMask -- ^ introduced in ES 3.1
 
 instance Marshal Capability where
 	marshal x = case x of
-		Texture2D             -> 0x0DE1
 		CullFace              -> 0x0B44
 		Blend                 -> 0x0BE2
 		Dither                -> 0x0BD0
@@ -806,16 +973,7 @@ instance Marshal Capability where
 		SampleCoverage        -> 0x80A0
 		PrimitiveRestartFixedIndex -> 0x8D69
 		RasterizerDiscard     -> 0x8C89
-		-- SampleMask -> 0x
-
-enable :: Capability -> IO ()
-enable = glEnable . marshal
-
-disable :: Capability -> IO ()
-disable = glDisable . marshal
-
-isEnabled :: Capability -> IO Bool
-isEnabled = liftA (/= 0) . glIsEnabled . marshal
+	-- SampleMask -> 0x
 
 withBSBS :: B.ByteString -> B.ByteString
          -> (Ptr a -> Ptr b -> Int -> IO c)
