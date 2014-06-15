@@ -6,6 +6,7 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Vect
 --import Data.Word (Word8)
 --import GHC.ST (runST, ST)
+import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Core (Program(..), Shader(..))
 
 
@@ -101,6 +102,7 @@ pureProgram = Program "Graphics.OpenGLES.Utils.pureProgram"
 	, FragmentShader "pureFragmentShader" pureFragmentShader
 	]
 
+-- deprecated
 pureVertexShader = BS.pack $
 	--"#version 100\n" ++
 	"attribute vec4 pos;\n" ++
@@ -110,7 +112,7 @@ pureVertexShader = BS.pack $
 	"    gl_Position = pos;\n" ++
 	"    vColor = color;\n" ++
 	"}\n"
-
+-- deprecated
 pureFragmentShader = BS.pack $
 	"#version 100\n" ++
 	"precision mediump float;\n" ++
@@ -129,3 +131,71 @@ rect x y w h = [Vec2 x y, Vec2 (x+w) y, Vec2 (x+w) (y+h), Vec2 x (y+h)]
 yEqual f from to = [Vec2 x (f x) | x <- [from..to]]
 
 xEqual g from to = [Vec2 (g y) y | y <- [from..to]]
+
+{-
+enable :: Capability -> IO ()
+enable = glEnable . marshal
+
+disable :: Capability -> IO ()
+disable = glDisable . marshal
+
+isEnabled :: Capability -> IO Bool
+isEnabled = liftA (/= 0) . glIsEnabled . marshal
+
+-- | glClear
+clearBuffer :: Bool -- ^ Clear color buffer
+            -> Bool -- ^ Clear depth buffer
+            -> Bool -- ^ Clear stencil buffer
+            -> IO ()
+clearBuffer c d s = glClear $ (if d then 0x100 else 0)
+  .|. (if s then 0x400 else 0) .|. (if c then 0x4000 else 0)
+
+getGLVendor = glGetString 0x1F00 >>= peekCString
+getGLRenderer = glGetString 0x1F01 >>= peekCString
+getGLVersion = glGetString 0x1F02 >>= peekCString
+getGLExtensions = words <$> (glGetString 0x1F03 >>= peekCString)
+getGLShadingLanguageVersion = glGetString 0x8B8C >>= peekCString
+-}
+
+viewport :: (Integral a, Integral b) => a -> a -> b -> b -> IO ()
+viewport x y w h = glViewport (fromIntegral x) (fromIntegral y)
+                              (fromIntegral w) (fromIntegral h)
+
+flashCommands :: IO ()
+flashCommands = glFlush
+
+waitForFinish :: IO ()
+waitForFinish = glFinish
+
+data SyncResult = AlreadySignaled
+                | ConditionSatisfied
+                | TimeoutExpired
+                | WaitFailed 
+                | InvalidValue_
+
+-- | better glFinish for ES 3.0
+waitForGPUCommandsComplete :: (Integral a)
+                           => Bool -- ^ flag for GL_SYNC_FLUSH_COMMANDS_BIT
+                           -> a -- ^ timeout in nanosecond
+                           -> IO SyncResult
+waitForGPUCommandsComplete flashCmds timeout_ns = do
+	sync <- glFenceSync 0x9117 0 -- GL_SYNC_GPU_COMMANDS_COMPLETE
+	res <- glClientWaitSync sync (if flashCmds then 1 else 0)
+			(fromIntegral timeout_ns)
+	glDeleteSync sync
+	return $ case res of
+		0x911A -> AlreadySignaled -- GL_ALREADY_SIGNALED
+		0x911C -> ConditionSatisfied -- GL_CONDITION_SATISFIED
+		0x911B -> TimeoutExpired -- GL_TIMEOUT_EXPIRED
+		0x911D -> WaitFailed -- GL_WAIT_FAILED
+		0x0501 -> InvalidValue_ -- GL_INVALID_VALUE
+
+-- | ES 3.0
+blockGPUWhileDraw :: IO ()
+blockGPUWhileDraw = do
+	sync <- glFenceSync 0x9117 0 -- GL_SYNC_GPU_COMMANDS_COMPLETE
+	glWaitSync sync 0 0xFFFFFFFFFFFFFFFF -- GL_TIMEOUT_IGNORED
+	glDeleteSync sync
+
+--unsafeDrawData :: DrawCall -> IO ()
+--unsafeDrawData dc = compileCall >>= drawData
