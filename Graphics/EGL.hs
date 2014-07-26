@@ -1,9 +1,14 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__
+{-# LANGUAGE Unsafe, UnliftedFFITypes, MagicHash, UnboxedTuples #-}
+#endif
 -- | EGL 1.4 standard
 -- <http://www.khronos.org/registry/egl/>
 -- <http://www.khronos.org/files/egl-1-4-quick-reference-card.pdf>
 module Graphics.EGL where
 import Control.Applicative
 import Data.IORef
+import Data.Marshal
 import Foreign.C.String
 import Foreign.Marshal.Alloc (alloca)
 import Foreign.Marshal.Array
@@ -11,14 +16,36 @@ import Foreign.Ptr
 import Foreign.Storable
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce
+#if __GLASGOW_HASKELL__
+import GHC.Base (realWorld#)
+import GHC.CString (unpackCString#)
+import GHC.IO (IO (IO))
+import GHC.Ptr (Ptr(..))
+#else
+import System.IO.Unsafe
+#endif
 
 type EGL a = IO (Either EGLError a)
 
 -- * Errors
 -- 0x3000-0x301E (Reserved 0x300F-0x301F for additional errors)
 data EGLError =
-  EGLSuccess | EGLNotInitialized | EGLBadAccess | EGLBadAlloc | EGLBadAttribute | EGLBadConfig | EGLBadContext | EGLBadCurrentSurface | EGLBadDisplay | EGLBadMatch | EGLBadNativePixmap | EGLBadNativeWindow | EGLBadParameter | EGLBadSurface | EGLContextLost
-  deriving (Enum)
+    EGLSuccess
+  | EGLNotInitialized
+  | EGLBadAccess
+  | EGLBadAlloc
+  | EGLBadAttribute
+  | EGLBadConfig
+  | EGLBadContext
+  | EGLBadCurrentSurface
+  | EGLBadDisplay
+  | EGLBadMatch
+  | EGLBadNativePixmap
+  | EGLBadNativeWindow
+  | EGLBadParameter
+  | EGLBadSurface
+  | EGLContextLost
+  | EGLUnknownErr Int
 
 instance Show EGLError where
   show EGLSuccess = "EGLSuccess: Function succeeded."
@@ -36,10 +63,28 @@ instance Show EGLError where
   show EGLBadParameter = "EGLBadParameter: One or more argument values are invalid."
   show EGLBadSurface = "EGLBadSurface: An EGLSurface argument does not name a valid surface (window, pbuffer, or pixmap) configured for rendering."
   show EGLContextLost = "EGLContextLost: A power management event has occurred. The application must destroy all contexts and reinitialise client API state and objects to continue rendering."
-  -- show x = "EGL(Unknown)Error: This error (" ++ show (fromEnum x + 0x3000) ++ ") is not defined in EGL 1.4 spec."
+  show (EGLUnknownErr n) = "EGLUnknownError: This error (" ++ show n ++ ") is not defined in EGL 1.4 spec."
 
 eglGetError :: IO EGLError
-eglGetError = c_eglGetError >>= return . toEnum . (-) 0x3000
+eglGetError = c_eglGetError >>= return . unMarshal . (-) 0x3000
+  where unMarshal x | x < 15 =
+          [EGLSuccess
+          ,EGLNotInitialized
+          ,EGLBadAccess
+          ,EGLBadAlloc
+          ,EGLBadAttribute
+          ,EGLBadConfig
+          ,EGLBadContext
+          ,EGLBadCurrentSurface
+          ,EGLBadDisplay
+          ,EGLBadMatch
+          ,EGLBadNativePixmap
+          ,EGLBadNativeWindow
+          ,EGLBadParameter
+          ,EGLBadSurface
+          ,EGLContextLost
+          ] !! x
+        unMarshal x = EGLUnknownErr x
 
 -- * Attribute Lists
 -- 0x3020-0x3042 (Reserved 0x3041-0x304F for additional config attributes)
@@ -371,6 +416,24 @@ eglReleaseTexImage display surface buffer =
 eglGetProcAddress :: String -> FunPtr a
 eglGetProcAddress procname =
   unsafePerformIO $ withCString procname c_eglGetProcAddress
+
+#if defined(__GLASGOW_HASKELL__)
+{-# INLINE [0] eglGetProcAddress #-}
+{-# RULES
+"EGL eglGetProcAddress/c_eglGetProcAddress" forall s .
+   eglGetProcAddress (unpackCString# s) = inlinePerformIO (c_eglGetProcAddress (Ptr s))
+ #-}
+
+{-# INLINE inlinePerformIO #-}
+-- | Just like unsafePerformIO, but we inline it. Big performance gains as
+-- it exposes lots of things to further inlining. /Very unsafe/. In
+-- particular, you should do no memory allocation inside an
+-- 'inlinePerformIO' block.
+--
+inlinePerformIO :: IO a -> a
+inlinePerformIO (IO m) = case m realWorld# of (# _, r #) -> r
+#endif
+
 
 -- * Extending EGL
 {-

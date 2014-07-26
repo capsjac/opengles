@@ -119,7 +119,7 @@ data Shader =
 data GraphicState =
 	  Begin Capability -- ^ Enable capability persistently.
 	| End Capability -- ^ Disable capability persistently.
-	 
+
 	| LineWidth Float
 	| FrontFace Bool
 	-- ^ Whether counter-wise or not
