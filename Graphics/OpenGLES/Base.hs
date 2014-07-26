@@ -275,60 +275,59 @@ module Graphics.OpenGLES.Base (
 	glMultiDrawElementsEXT
 	) where
 import Foreign
-import Foreign.C.String (CString)
-import Foreign.C.Types
+import Foreign.C.String
 import Graphics.EGL (eglGetProcAddress)
 
 -- * Basic Types
 -- ** OpenGL ES 2.0
 
 -- | 1bit boolean
-type GLboolean = CUChar
+type GLboolean = Word8
 
 -- | 8bit signed two\'s complement binary integer
-type GLbyte = CSChar
+type GLbyte = Int8
 
 -- | 8bit unsigned binary integer
-type GLubyte = CUChar
+type GLubyte = Word8
 
--- | 8bit characters making up strings
-type GLchar = CChar
+-- | (Unused) 8bit characters making up strings
+type GLchar = Int8
 
 -- | 16bit signed two\'s complement binary integer
-type GLshort = CShort
+type GLshort = Int16
 
 -- | 16bit unsigned binary integer
-type GLushort = CUShort
+type GLushort = Word16
 
 -- | 32bit signed two\'s complement binary integer
-type GLint = CInt
+type GLint = Int32
 
 -- | 32bit unsigned binary integer
-type GLuint = CUInt
+type GLuint = Word32
 
 -- | 32bit signed two\'s complement 16.16 scaled integer
-type GLfixed = CInt
+type GLfixed = Int32
 
 -- | 32bit non-negative binary integer size
-type GLsizei = CInt
+type GLsizei = Word32
 
 -- | 32bit enumerated binary integer value
-type GLenum = CUInt
+type GLenum = Word32
 
 -- | Pointer-sized signed two\'s complement binary integer
-type GLintptr = CPtrdiff
+type GLintptr = Int
 
 -- | Pointer-sized non-negative binary integer size
-type GLsizeiptr = CPtrdiff
+type GLsizeiptr = Word
 
 -- | 32bit bit field
-type GLbitfield = CUInt
+type GLbitfield = Word32
 
 -- | 32bit floating-point value
-type GLfloat = CFloat
+type GLfloat = Float
 
 -- | 32bit floating-point value clamped to [0,1]
-type GLclampf = CFloat
+type GLclampf = Float
 
 -- ** OpenGL ES 3.0
 
@@ -342,7 +341,8 @@ type GLuint64 = Word64
 type GLsync = Ptr ()
 
 -- | 16bit half-precision floating-point value encoded in an unsigned scalar
-type GLhalf = CUShort
+type GLhalf = Word16
+
 
 -- * Wrappers
 
@@ -354,17 +354,22 @@ isGLProcAvailable name = let
 	-- eglGetProcAddress may return an useless pointer when
 	-- given name starts with "gl" but not implemented.
 
---getopenglversion, dummy call or throwifnull
-
+-- Declere must-have functions
 #define GL_PROC(_procname, _typ) \
+foreign import ccall unsafe "GLES2/gl2.h" _procname :: _typ; \
+{-# INLINE _procname #-} \
+
+-- Work around for a runtime link error
+#define GL_EXT(_procname, _typ) \
 foreign import ccall unsafe "dynamic" unwrap_/**/_procname :: FunPtr (_typ) -> _typ; \
 _procname :: _typ; \
-_procname = unwrap_/**/_procname (eglGetProcAddress "_procname"); 
-
+_procname = unwrap_/**/_procname (eglGetProcAddress "_procname") ; \
+{-# NOINLINE _procname #-} \
 -- foreign import ccall unsafe "dynamic"
 --   unwrap_glActiveTexture :: FunPtr (GLenum -> IO ()) -> GLenum -> IO ();
 -- glActiveTexture :: GLenum -> IO ();
 -- glActiveTexture = unwrap_glActiveTexture (eglGetProcAddress "glActiveTexture");
+
 
 -- ** OpenGL ES 2.0
 
@@ -422,8 +427,8 @@ GL_PROC(glGenerateMipmap, GLenum -> IO ())
 GL_PROC(glGenFramebuffers, GLsizei -> Ptr GLuint -> IO ())
 GL_PROC(glGenRenderbuffers, GLsizei -> Ptr GLuint -> IO ())
 GL_PROC(glGenTextures, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glGetActiveAttrib, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLint -> Ptr GLenum -> Ptr GLchar -> IO ())
-GL_PROC(glGetActiveUniform, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLint -> Ptr GLenum -> Ptr GLchar -> IO ())
+GL_PROC(glGetActiveAttrib, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLint -> Ptr GLenum -> CString -> IO ())
+GL_PROC(glGetActiveUniform, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLint -> Ptr GLenum -> CString -> IO ())
 GL_PROC(glGetAttachedShaders, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLuint -> IO ())
 GL_PROC(glGetAttribLocation, GLuint -> CString -> IO GLint)
 GL_PROC(glGetBooleanv, GLenum -> Ptr GLboolean -> IO ())
@@ -433,12 +438,12 @@ GL_PROC(glGetFloatv, GLenum -> Ptr GLfloat -> IO ())
 GL_PROC(glGetFramebufferAttachmentParameteriv, GLenum -> GLenum -> GLenum -> Ptr GLint -> IO ())
 GL_PROC(glGetIntegerv, GLenum -> Ptr GLint -> IO ())
 GL_PROC(glGetProgramiv, GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetProgramInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+GL_PROC(glGetProgramInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> CString -> IO ())
 GL_PROC(glGetRenderbufferParameteriv, GLenum -> GLenum -> Ptr GLint -> IO ())
 GL_PROC(glGetShaderiv, GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetShaderInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+GL_PROC(glGetShaderInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> CString -> IO ())
 GL_PROC(glGetShaderPrecisionFormat, GLenum -> GLenum -> Ptr GLint -> Ptr GLint -> IO ())
-GL_PROC(glGetShaderSource, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+GL_PROC(glGetShaderSource, GLuint -> GLsizei -> Ptr GLsizei -> CString -> IO ())
 GL_PROC(glGetString, GLenum -> IO CString)
 GL_PROC(glGetTexParameterfv, GLenum -> GLenum -> Ptr GLfloat -> IO ())
 GL_PROC(glGetTexParameteriv, GLenum -> GLenum -> Ptr GLint -> IO ())
@@ -513,113 +518,113 @@ GL_PROC(glViewport, GLint -> GLint -> GLsizei -> GLsizei -> IO ())
 
 -- ** OpenGL ES 3.0
 
-GL_PROC(glReadBuffer, GLenum -> IO ())
-GL_PROC(glDrawRangeElements, GLenum -> GLuint -> GLuint -> GLsizei -> GLenum -> Ptr (()) -> IO ())
-GL_PROC(glTexImage3D, GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLenum -> GLenum -> Ptr (()) -> IO ())
-GL_PROC(glTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLenum -> Ptr () -> IO ())
-GL_PROC(glCopyTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLsizei -> Ptr () -> IO ())
-GL_PROC(glCompressedTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLsizei -> Ptr () -> IO ())
-GL_PROC(glGenQueries, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glDeleteQueries, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glIsQuery, GLuint -> IO GLboolean)
-GL_PROC(glBeginQuery, GLenum -> GLuint -> IO ())
-GL_PROC(glEndQuery, GLenum -> IO ())
-GL_PROC(glGetQueryiv, GLenum -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetQueryObjectuiv, GLuint -> GLenum -> Ptr GLuint -> IO ())
-GL_PROC(glUnmapBuffer, GLenum -> IO GLboolean)
-GL_PROC(glGetBufferPointerv, GLenum -> GLenum -> Ptr (Ptr ()) -> IO ())
-GL_PROC(glDrawBuffers, GLsizei -> Ptr GLenum -> IO ())
-GL_PROC(glUniformMatrix2x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glUniformMatrix3x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glUniformMatrix2x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glUniformMatrix4x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glUniformMatrix3x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glUniformMatrix4x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
-GL_PROC(glBlitFramebuffer, GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLbitfield -> GLenum -> IO ())
-GL_PROC(glRenderbufferStorageMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glFramebufferTextureLayer, GLenum -> GLenum -> GLuint -> GLint -> GLint -> IO ())
-GL_PROC(glMapBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GLbitfield -> IO (Ptr ()))
-GL_PROC(glFlushMappedBufferRange, GLenum -> GLintptr -> GLsizeiptr -> IO ())
-GL_PROC(glBindVertexArray, GLuint -> IO ())
-GL_PROC(glDeleteVertexArrays, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glGenVertexArrays, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glIsVertexArray, GLuint -> IO GLboolean)
-GL_PROC(glGetIntegeri_v, GLenum -> GLuint -> Ptr GLint -> IO ())
-GL_PROC(glBeginTransformFeedback, GLenum -> IO ())
-GL_PROC(glEndTransformFeedback, IO ())
-GL_PROC(glBindBufferRange, GLenum -> GLuint -> GLuint -> GLintptr -> GLsizeiptr -> IO ())
-GL_PROC(glBindBufferBase, GLenum -> GLuint -> GLuint -> IO ())
-GL_PROC(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr CString -> GLenum -> IO ())
-GL_PROC(glGetTransformFeedbackVarying, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr GLchar -> IO ())
-GL_PROC(glVertexAttribIPointer, GLuint -> GLint -> GLenum -> GLsizei -> Ptr () -> IO ())
-GL_PROC(glGetVertexAttribIiv, GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetVertexAttribIuiv, GLuint -> GLenum -> Ptr GLuint -> IO ())
-GL_PROC(glVertexAttribI4i, GLuint -> GLint -> GLint -> GLint -> GLint -> IO ())
-GL_PROC(glVertexAttribI4ui, GLuint -> GLuint -> GLuint -> GLuint -> GLuint -> IO ())
-GL_PROC(glVertexAttribI4iv, GLuint -> Ptr GLint -> IO ())
-GL_PROC(glVertexAttribI4uiv, GLuint -> Ptr GLuint -> IO ())
-GL_PROC(glGetUniformuiv, GLuint -> GLint -> Ptr GLuint -> IO ())
-GL_PROC(glGetFragDataLocation, GLuint -> CString-> IO GLint)
-GL_PROC(glUniform1ui, GLint -> GLuint -> IO ())
-GL_PROC(glUniform2ui, GLint -> GLuint -> GLuint -> IO ())
-GL_PROC(glUniform3ui, GLint -> GLuint -> GLuint -> GLuint -> IO ())
-GL_PROC(glUniform4ui, GLint -> GLuint -> GLuint -> GLuint -> GLuint -> IO ())
-GL_PROC(glUniform1uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glUniform2uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glUniform3uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glUniform4uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glClearBufferiv, GLenum -> GLint -> Ptr GLint -> IO ())
-GL_PROC(glClearBufferuiv, GLenum -> GLint -> Ptr GLuint -> IO ())
-GL_PROC(glClearBufferfv, GLenum -> GLint -> Ptr GLfloat -> IO ())
-GL_PROC(glClearBufferfi, GLenum -> GLint -> GLfloat -> GLint -> IO ())
-GL_PROC(glGetStringi, GLenum -> GLuint -> IO CString)
-GL_PROC(glCopyBufferSubData, GLenum -> GLenum -> GLintptr -> GLintptr -> GLsizeiptr -> IO ())
-GL_PROC(glGetUniformIndices, GLuint -> GLsizei -> Ptr CString -> Ptr GLuint -> IO ())
-GL_PROC(glGetActiveUniformsiv, GLuint -> GLsizei -> Ptr GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetUniformBlockIndex, GLuint -> Ptr GLchar -> IO GLuint)
-GL_PROC(glGetActiveUniformBlockiv, GLuint -> GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetActiveUniformBlockName, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
-GL_PROC(glUniformBlockBinding, GLuint -> GLuint -> GLuint -> IO ())
-GL_PROC(glDrawArraysInstanced, GLenum -> GLint -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glDrawElementsInstanced, GLenum -> GLsizei -> GLenum -> Ptr () -> GLsizei -> IO ())
-GL_PROC(glFenceSync, GLenum -> GLbitfield -> IO GLsync)
-GL_PROC(glIsSync, GLsync -> IO GLboolean)
-GL_PROC(glDeleteSync, GLsync -> IO ())
-GL_PROC(glClientWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO GLenum)
-GL_PROC(glWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO ())
-GL_PROC(glGetInteger64v, GLenum -> Ptr GLint64 -> IO ())
-GL_PROC(glGetSynciv, GLsync -> GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> IO ())
-GL_PROC(glGetInteger64i_v, GLenum -> GLuint -> Ptr GLint64 -> IO ())
-GL_PROC(glGetBufferParameteri64v, GLenum -> GLenum -> Ptr GLint64 -> IO ())
-GL_PROC(glGenSamplers, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glDeleteSamplers, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glIsSampler, GLuint -> IO GLboolean)
-GL_PROC(glBindSampler, GLuint -> GLuint -> IO ())
-GL_PROC(glSamplerParameteri, GLuint -> GLenum -> GLint -> IO ())
-GL_PROC(glSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glSamplerParameterf, GLuint -> GLenum -> GLfloat -> IO ())
-GL_PROC(glSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> IO ())
-GL_PROC(glGetSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> IO ())
-GL_PROC(glGetSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> IO ())
-GL_PROC(glVertexAttribDivisor, GLuint -> GLuint -> IO ())
-GL_PROC(glBindTransformFeedback, GLenum -> GLuint -> IO ())
-GL_PROC(glDeleteTransformFeedbacks, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glGenTransformFeedbacks, GLsizei -> Ptr GLuint -> IO ())
-GL_PROC(glIsTransformFeedback, GLuint -> IO GLboolean)
-GL_PROC(glPauseTransformFeedback, IO ())
-GL_PROC(glResumeTransformFeedback, IO ())
-GL_PROC(glGetProgramBinary, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr () -> IO ())
-GL_PROC(glProgramBinary, GLuint -> GLenum -> Ptr () -> GLsizei -> IO ())
-GL_PROC(glProgramParameteri, GLuint -> GLenum -> GLint -> IO ())
-GL_PROC(glInvalidateFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> IO ())
-GL_PROC(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> IO ())
-GL_PROC(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glReadBuffer, GLenum -> IO ())
+GL_EXT(glDrawRangeElements, GLenum -> GLuint -> GLuint -> GLsizei -> GLenum -> Ptr (()) -> IO ())
+GL_EXT(glTexImage3D, GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLenum -> GLenum -> Ptr (()) -> IO ())
+GL_EXT(glTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLenum -> Ptr () -> IO ())
+GL_EXT(glCopyTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLsizei -> Ptr () -> IO ())
+GL_EXT(glCompressedTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLsizei -> Ptr () -> IO ())
+GL_EXT(glGenQueries, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glDeleteQueries, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glIsQuery, GLuint -> IO GLboolean)
+GL_EXT(glBeginQuery, GLenum -> GLuint -> IO ())
+GL_EXT(glEndQuery, GLenum -> IO ())
+GL_EXT(glGetQueryiv, GLenum -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetQueryObjectuiv, GLuint -> GLenum -> Ptr GLuint -> IO ())
+GL_EXT(glUnmapBuffer, GLenum -> IO GLboolean)
+GL_EXT(glGetBufferPointerv, GLenum -> GLenum -> Ptr (Ptr ()) -> IO ())
+GL_EXT(glDrawBuffers, GLsizei -> Ptr GLenum -> IO ())
+GL_EXT(glUniformMatrix2x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glUniformMatrix3x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glUniformMatrix2x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glUniformMatrix4x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glUniformMatrix3x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glUniformMatrix4x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glBlitFramebuffer, GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLbitfield -> GLenum -> IO ())
+GL_EXT(glRenderbufferStorageMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glFramebufferTextureLayer, GLenum -> GLenum -> GLuint -> GLint -> GLint -> IO ())
+GL_EXT(glMapBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GLbitfield -> IO (Ptr ()))
+GL_EXT(glFlushMappedBufferRange, GLenum -> GLintptr -> GLsizeiptr -> IO ())
+GL_EXT(glBindVertexArray, GLuint -> IO ())
+GL_EXT(glDeleteVertexArrays, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glGenVertexArrays, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glIsVertexArray, GLuint -> IO GLboolean)
+GL_EXT(glGetIntegeri_v, GLenum -> GLuint -> Ptr GLint -> IO ())
+GL_EXT(glBeginTransformFeedback, GLenum -> IO ())
+GL_EXT(glEndTransformFeedback, IO ())
+GL_EXT(glBindBufferRange, GLenum -> GLuint -> GLuint -> GLintptr -> GLsizeiptr -> IO ())
+GL_EXT(glBindBufferBase, GLenum -> GLuint -> GLuint -> IO ())
+GL_EXT(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr CString -> GLenum -> IO ())
+GL_EXT(glGetTransformFeedbackVarying, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLsizei -> Ptr GLenum -> CString -> IO ())
+GL_EXT(glVertexAttribIPointer, GLuint -> GLint -> GLenum -> GLsizei -> Ptr () -> IO ())
+GL_EXT(glGetVertexAttribIiv, GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetVertexAttribIuiv, GLuint -> GLenum -> Ptr GLuint -> IO ())
+GL_EXT(glVertexAttribI4i, GLuint -> GLint -> GLint -> GLint -> GLint -> IO ())
+GL_EXT(glVertexAttribI4ui, GLuint -> GLuint -> GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glVertexAttribI4iv, GLuint -> Ptr GLint -> IO ())
+GL_EXT(glVertexAttribI4uiv, GLuint -> Ptr GLuint -> IO ())
+GL_EXT(glGetUniformuiv, GLuint -> GLint -> Ptr GLuint -> IO ())
+GL_EXT(glGetFragDataLocation, GLuint -> CString-> IO GLint)
+GL_EXT(glUniform1ui, GLint -> GLuint -> IO ())
+GL_EXT(glUniform2ui, GLint -> GLuint -> GLuint -> IO ())
+GL_EXT(glUniform3ui, GLint -> GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glUniform4ui, GLint -> GLuint -> GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glUniform1uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glUniform2uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glUniform3uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glUniform4uiv, GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glClearBufferiv, GLenum -> GLint -> Ptr GLint -> IO ())
+GL_EXT(glClearBufferuiv, GLenum -> GLint -> Ptr GLuint -> IO ())
+GL_EXT(glClearBufferfv, GLenum -> GLint -> Ptr GLfloat -> IO ())
+GL_EXT(glClearBufferfi, GLenum -> GLint -> GLfloat -> GLint -> IO ())
+GL_EXT(glGetStringi, GLenum -> GLuint -> IO CString)
+GL_EXT(glCopyBufferSubData, GLenum -> GLenum -> GLintptr -> GLintptr -> GLsizeiptr -> IO ())
+GL_EXT(glGetUniformIndices, GLuint -> GLsizei -> Ptr CString -> Ptr GLuint -> IO ())
+GL_EXT(glGetActiveUniformsiv, GLuint -> GLsizei -> Ptr GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetUniformBlockIndex, GLuint -> CString -> IO GLuint)
+GL_EXT(glGetActiveUniformBlockiv, GLuint -> GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetActiveUniformBlockName, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> CString -> IO ())
+GL_EXT(glUniformBlockBinding, GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glDrawArraysInstanced, GLenum -> GLint -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glDrawElementsInstanced, GLenum -> GLsizei -> GLenum -> Ptr () -> GLsizei -> IO ())
+GL_EXT(glFenceSync, GLenum -> GLbitfield -> IO GLsync)
+GL_EXT(glIsSync, GLsync -> IO GLboolean)
+GL_EXT(glDeleteSync, GLsync -> IO ())
+GL_EXT(glClientWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO GLenum)
+GL_EXT(glWaitSync, GLsync -> GLbitfield -> GLuint64 -> IO ())
+GL_EXT(glGetInteger64v, GLenum -> Ptr GLint64 -> IO ())
+GL_EXT(glGetSynciv, GLsync -> GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glGetInteger64i_v, GLenum -> GLuint -> Ptr GLint64 -> IO ())
+GL_EXT(glGetBufferParameteri64v, GLenum -> GLenum -> Ptr GLint64 -> IO ())
+GL_EXT(glGenSamplers, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glDeleteSamplers, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glIsSampler, GLuint -> IO GLboolean)
+GL_EXT(glBindSampler, GLuint -> GLuint -> IO ())
+GL_EXT(glSamplerParameteri, GLuint -> GLenum -> GLint -> IO ())
+GL_EXT(glSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glSamplerParameterf, GLuint -> GLenum -> GLfloat -> IO ())
+GL_EXT(glSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> IO ())
+GL_EXT(glGetSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> IO ())
+GL_EXT(glVertexAttribDivisor, GLuint -> GLuint -> IO ())
+GL_EXT(glBindTransformFeedback, GLenum -> GLuint -> IO ())
+GL_EXT(glDeleteTransformFeedbacks, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glGenTransformFeedbacks, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glIsTransformFeedback, GLuint -> IO GLboolean)
+GL_EXT(glPauseTransformFeedback, IO ())
+GL_EXT(glResumeTransformFeedback, IO ())
+GL_EXT(glGetProgramBinary, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr () -> IO ())
+GL_EXT(glProgramBinary, GLuint -> GLenum -> Ptr () -> GLsizei -> IO ())
+GL_EXT(glProgramParameteri, GLuint -> GLenum -> GLint -> IO ())
+GL_EXT(glInvalidateFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> IO ())
+GL_EXT(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> IO ())
+GL_EXT(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> IO ())
 
 -- ** Extensions
-GL_PROC(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> IO ())
-GL_PROC(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> IO ())
-GL_PROC(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> IO ())
+GL_EXT(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> IO ())
+GL_EXT(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> IO ())
+GL_EXT(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> IO ())
 
