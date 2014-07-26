@@ -1,12 +1,45 @@
-{-# LANGUAGE FlexibleInstances, BangPatterns, StandaloneDeriving #-}
--- | GL ES 3.1 is not supported yet.
-module Graphics.OpenGLES.Core where
-import qualified Data.ByteString as B
-import Data.ByteString.Internal (create, nullForeignPtr, toForeignPtr)
+{-# LANGUAGE FlexibleInstances, BangPatterns, StandaloneDeriving, Rank2Types #-}
+module Graphics.OpenGLES.Core (
+	DrawCall(..),
+	DrawMode(..),
+	Program(..),
+	Shader(..),
+	GraphicState(..),
+	Capability(..),
+	CullFace(..),
+	CompFunc(..),
+	StencilOp(..),
+	BlendOp(..),
+	BlendingFactor(..),
+	Hint(..),
+	UniformVar(..),
+	UniformValue(..),
+	Texture(..),
+	TextureTarget(..),
+	TextureColorFormat(..),
+	TextureBitLayout(..),
+	TextureInternalFormat(..),
+	TextureData(..),
+	Sampler(..),
+	MagFilter(..),
+	MinFilter(..),
+	WrapMode(..),
+	VertexAttr(..),
+	VertexData(..),
+	VertexPicker(..),
+	GLManager(..),
+	GLVersion(..),
+	initGLManager,
+	compileCall,
+	drawData
+) where
 import Control.Applicative
 import Control.Monad
+import qualified Data.ByteString as B
+import Data.ByteString.Internal (create, nullForeignPtr, toForeignPtr)
 import Data.Either
 import Data.IORef
+import Data.Marshal
 import Data.Vect
 import Foreign hiding (newForeignPtr, addForeignPtrFinalizer)
 import Foreign.C.String
@@ -22,11 +55,11 @@ data DrawCall =
 		(ProgramRef -> [ShaderRef] -> Program)
 		[GraphicState]
 		[UniformId -> UniformVar]
-		[AttrId -> VertexAttr]
+		[VertexAttr]
 		VertexPicker
 	| DrawCall
 		!DrawMode !Program ![GraphicState]
-		![UniformVar] ![VertexAttr] !VertexPicker
+		![UniformVar] ![(AttrId, VertexAttr)] !VertexPicker
 	| DrawTexture !TextureRef !Int !Int !Int !Int !Int !Int !Int !Int !Int -- add DrawConfig?
 	| SetGraphicState [GraphicState]
 	-- .|WaitForFinishTimeout Bool Int64
@@ -75,6 +108,7 @@ data Program =
 data Shader =
 	  VertexShader String B.ByteString
 	| FragmentShader String B.ByteString
+	-- .| ComputeShader String B.ByteString
 	deriving (Show, Eq)
 
 
@@ -83,24 +117,24 @@ data Shader =
 -- | Draw configurations on Rasterization and Per-Fragment Operations.
 -- Note: Graphic state is sticky.
 data GraphicState =
-	  Use Capability -- ^ Enable capability persistently.
-	| Unuse Capability -- ^ Disable capability persistently.
+	  Begin Capability -- ^ Enable capability persistently.
+	| End Capability -- ^ Disable capability persistently.
 	 
 	| LineWidth Float
 	| FrontFace Bool
 	-- ^ Whether counter-wise or not
-	| CullFaceMode CullFace
+	| CullFace CullFace
 	-- ^ Which side of polygons should be rasterized, cannot used with DepthTest
 	| PolygonOffset Float Float -- ^ Factor and Units
 
-	| Scissor Int Int Int Int -- ^ (!!) left, bottom, width, height
+	| Scissor Int32 Int32 Word32 Word32 -- ^ (!!) left, bottom, width, height
 	| SampleCvrg Float Bool -- ^ float[0,1] value, invert
 	| StencilFunc CompFunc Int32 Word32 -- ^ comp, mask value
 	| StencilFuncSeparate CullFace CompFunc Int32 Word32
 	| StencilOp StencilOp StencilOp StencilOp -- ^ sfail, dpfail, dppass
 	| StencilOpSeparate CullFace StencilOp StencilOp StencilOp
 	| DepthFunc CompFunc
-	| BlendEquation BlendOp -- ^ mode 
+	| BlendEquation BlendOp -- ^ mode
 	| BlendEquationSeparate BlendOp BlendOp -- ^ modeRGB, modeAlpha
 	| BlendFunc BlendingFactor BlendingFactor -- ^ src, dest
 	| BlendFuncSeparate BlendingFactor BlendingFactor
@@ -113,7 +147,7 @@ data GraphicState =
 	deriving (Show, Eq)
 
 data Capability =
-	  CullFace
+	  CullFaceTest
 	| Blend -- ^ Applies to all draw buffers
 	| Dither
 	| StencilTest
@@ -131,8 +165,8 @@ data CullFace = Front | Back | FrontAndBack
 	deriving (Show, Eq)
 
 data CompFunc =
-	  Never | Less | Equal | LEqual | Greater
-	| NotEqual | GEqual | Always
+	  Never | Less | Equal | LessEq | Greater
+	| NotEq | GreatEq | Always
 	deriving (Show, Eq)
 
 data StencilOp =
@@ -162,52 +196,52 @@ data Hint = DontCare | Fastest | Nicest
 
 -- | [String] Variable name to bind the vertex attribute
 data VertexAttr =
-	  Vertex String VertexData AttrId
+	  Vertex String VertexData
 	-- ^ for vec[1234] Floating integer data per vertex
-	| NormalizedVertex String VertexData AttrId
+	| NormalizedVertex String VertexData
 	-- ^ for vec[1234] Clamp values to [0,1] ([-1,1] if signed)
-	| IntVertex String VertexData AttrId
+	| IntVertex String VertexData
 	-- ^ for ivec[1234] Integer variant of Vertex
-	| Instanced !Int !(AttrId -> VertexAttr) !AttrId
+	| Instanced !Word32 !VertexAttr
 	-- ^ Treat as: let vertexList' = concatMap (replicate instanceNum) vertexList
-	| BufferSlice String !BufferRef !GLint !GLenum !GLboolean !GLsizei !Int !AttrId
+	| BufferSlice String !BufferRef !GLint !GLenum !GLboolean !GLsizei !Int
 	-- ^ Internally used. Wrapping glVertexAttribPointer()
-	| BufferSlicei String !BufferRef !GLint !GLenum !GLsizei !Int !AttrId
+	| BufferSlicei String !BufferRef !GLint !GLenum !GLsizei !Int
 	-- ^ Internally used. Wrapping glVertexAttribIPointer()
-	| ConstAttr1f String !Float !AttrId
-	| ConstAttr2f String !Vec2 !AttrId
-	| ConstAttr3f String !Vec3 !AttrId
-	| ConstAttr4f String !Vec4 !AttrId
-	| ConstAttr4i String !GLint !GLint !GLint !GLint !AttrId -- ^ introduced in ES 3.0
-	| ConstAttr4ui String !GLuint !GLuint !GLuint !GLuint !AttrId -- ^ introduced in ES 3.0
+	| ConstAttr1f String !Float
+	| ConstAttr2f String !Vec2
+	| ConstAttr3f String !Vec3
+	| ConstAttr4f String !Vec4
+	| ConstAttr4i String !GLint !GLint !GLint !GLint -- ^ introduced in ES 3.0
+	| ConstAttr4ui String !GLuint !GLuint !GLuint !GLuint -- ^ introduced in ES 3.0
 	deriving (Show, Eq)
 
 attrVarName :: VertexAttr -> String
 attrVarName x = case x of
-	Vertex s _ _ -> s; NormalizedVertex s _ _ -> s;
-	IntVertex s _ _ -> s; Instanced _ s _ -> attrVarName (s 0);
-	BufferSlice s _ _ _ _ _ _ _ -> s;
-	BufferSlicei s _ _ _ _ _ _ -> s;
-	ConstAttr1f s _ _ -> s; ConstAttr2f s _ _ -> s;
-	ConstAttr3f s _ _ -> s; ConstAttr4f s _ _ -> s;
-	ConstAttr4i s _ _ _ _ _ -> s; ConstAttr4ui s _ _ _ _ _ -> s;
+	Vertex s _ -> s; NormalizedVertex s _ -> s;
+	IntVertex s _ -> s; Instanced _ s -> attrVarName s;
+	BufferSlice s _ _ _ _ _ _ -> s;
+	BufferSlicei s _ _ _ _ _ -> s;
+	ConstAttr1f s _ -> s; ConstAttr2f s _ -> s;
+	ConstAttr3f s _ -> s; ConstAttr4f s _ -> s;
+	ConstAttr4i s _ _ _ _ -> s; ConstAttr4ui s _ _ _ _ -> s;
 
 -- | Vector array
 -- 
 -- [Int] Dimentions of the vector
 data VertexData =
-	  ByteV Int [Int8]
-	| UByteV Int [Word8]
-	| ShortV Int [Int16]
-	| UShortV Int [Word16]
-	| IntV Int [Int32]  -- ^ introduced in ES 3.0
-	| UIntV Int [Word32]  -- ^ introduced in ES 3.0
-	-- | HalfFloatV Int [Word16?]
-	| FloatV Int [Float]
-	-- | FixedV Int [Word32?]
+	  ByteV Int32 [Int8]
+	| UByteV Int32 [Word8]
+	| ShortV Int32 [Int16]
+	| UShortV Int32 [Word16]
+	| IntV Int32 [Int32]  -- ^ introduced in ES 3.0
+	| UIntV Int32 [Word32]  -- ^ introduced in ES 3.0
+	| HalfFloatV Int32 [Word16]
+	| FloatV Int32 [Float]
+	| FixedV Int32 [Int32]
 	| I2_10_10_10V [Int32]
 	| UI2_10_10_10V [Word32]
-	-- | BlobSliced
+	| BlobSliced VertexData B.ByteString
 	| NoneV -- ^ Do nothing. For early development.
 	deriving (Show, Eq)
 
@@ -375,9 +409,9 @@ data WrapMode = Repeat | ClampToEdge | MirroredRepeat
 --
 -- Version/Ext fallback feature is not yet. (See above)
 data VertexPicker =
-	  VFromCount !Int !Int
-	| VFromCountInstanced !Int !Int !Int
-	| VFromCounts ![(Int, Int)]
+	  VFromCount !Int32 !Word32
+	| VFromCountInstanced !Int32 !Word32 !Word32
+	| VFromCounts ![(Int32, Word32)]
 	| VFromCounts' !B.ByteString !B.ByteString
 	-- ^ Wrapping glMultiDrawArraysEXT
 	| VIndex8 ![Word8]
@@ -449,13 +483,13 @@ compileCall glm@(GLManager version cache)
 	d <- eitherIO program $ \prog@(Program _ _ fp _) -> do
 		pid <- withForeignPtr fp (return . ptrToId)
 		attr' <- forM attribs $ \attr -> do
-			let name = attrVarName $ attr 0
+			let name = attrVarName attr
 			i <- getAttribLocation pid name
 			showError $ "glGetAttribLocation " ++ show (progName, name, i)
 			if i < 0 then error $ "Vertex attribute '" ++ name
 				++ "' was not found in shader program '" ++ progName
 				++ "'"
-			else return $ attr $ fromIntegral i
+			else return $ (fromIntegral i, attr)
 		
 		unifs <- forM uniforms $ \u -> do
 			let name = uniformName $ u 0
@@ -545,9 +579,6 @@ showError location = do
 		NoError -> return ()
 		_ -> putStrLn $ "GLError " ++ location ++ ": " ++ show err
 
--- | fromEnum alternative
-class Marshal a where marshal :: (Num n) => a -> n
-
 
 -- ** Compiling
 
@@ -605,7 +636,7 @@ loadProgram glm progname shaders = do
 					glGetProgramiv pid (marshal ProgramInfoLogLength) pint
 					len <- peek pint
 					msg <- allocaBytes (fromIntegral len) $ \buf -> do
-						glGetProgramInfoLog pid len nullPtr buf
+						glGetProgramInfoLog pid (fromIntegral len) nullPtr buf
 						msg <- peekCStringLen (buf, fromIntegral len)
 						return $ "Cannot link program " ++ progname ++ "\n" ++ msg
 					putStrLn msg
@@ -669,7 +700,7 @@ loadShader s =
 							glGetShaderiv sid (marshal ShaderInfoLogLength) pint
 							len <- peek pint
 							msg <- allocaBytes (fromIntegral len) $ \buf -> do
-								glGetShaderInfoLog sid len nullPtr buf
+								glGetShaderInfoLog sid (fromIntegral len) nullPtr buf
 								msg <- peekCStringLen (buf, fromIntegral len)
 								return $ "Could not compile " ++ " " ++ name ++ "\n" ++ msg
 							putStrLn msg
@@ -685,65 +716,92 @@ getUniformLocation :: ResourceId -> String -> IO UniformId
 getUniformLocation prog name =
 	withCString name (glGetUniformLocation prog)
 
-compileVertexAttr :: VertexAttr -> IO VertexAttr
-compileVertexAttr va = case va of
-	Vertex name vect loc -> compileVertex name vect loc 0
-	NormalizedVertex name vect loc -> compileVertex name vect loc 1
-	IntVertex name vect loc ->
-		return va -- XXX go name vect loc BufferSlicei
-	Instanced divNum f loc -> do
-		--compiled <- compileVertexAttr (f loc)
-		--Instanced divNum compiled loc
+compileVertexAttr :: (AttrId, VertexAttr) -> IO (AttrId, VertexAttr)
+compileVertexAttr self@(loc, va) = case va of
+	Vertex name vect -> compileVertex name vect loc 0
+	NormalizedVertex name vect -> compileVertex name vect loc 1
+	IntVertex name vect ->
+		return self -- XXX go name vect loc BufferSlicei
+	Instanced divNum va -> do
+		(_, compiled) <- compileVertexAttr (0, va)
+		return $ (loc, Instanced divNum compiled)
 		-- XXX fallback
-		return va
 	--BufferSlice _ ref size typ normalize stride offset loc -> do	
 	--BufferSlicei _ ref size typ stride offset loc -> do
 	-- ConstAttr[1234]f/4i/4ui
-	_ -> return va
+	_ -> return self
 
 gl_array_buffer = 0x8892
 gl_static_draw = 0x88E4
 
-compileVertex name vect loc normalize = case vect of
-	--ByteV n xs -> 
-	UByteV n xs -> do
-		bidptr <- malloc
-		bid <- glGenBuffers 1 bidptr >> peek bidptr
-		showError "glGenBuffers"
-		putStrLn $ show bid
-		glBindBuffer gl_array_buffer bid
-		showError "glBindBuffer"
-		elems <- withArrayLen xs $ \len ptr -> do
-			glBufferData gl_array_buffer (int' $ len * 1) (castPtr ptr) gl_static_draw
-			showError "glBufferData"
-			return len
-		fpb <- bindFinalizer (glDeleteBuffers 1 bidptr >> free bidptr) bid
-		-- GL_UNSIGNED_UBYTE = 0x1401
-		return $ BufferSlice name fpb (int $ elems `div` n) 0x1401 normalize (int n) 0 loc
-	--ShortV n xs -> 
-	--UShortV n xs -> 
-	--IntV n xs -> 
-	--UIntV n xs -> 
-	--HalfFloatV n xs -> -}
-	FloatV n xs -> do
-		-- XXX error if elems%n /= 0
-		bidptr <- malloc
-		bid <- glGenBuffers 1 bidptr >> peek bidptr
-		putStrLn $ show bid
-		showError "glGenBuffers"
-		glBindBuffer gl_array_buffer bid
-		elems <- withArrayLen xs $ \len ptr -> do
-			glBufferData gl_array_buffer (int' $ len * 4) (castPtr ptr) gl_static_draw
-			showError "glBufferData"
-			return len
-		fpb <- bindFinalizer (glDeleteBuffers 1 bidptr >> free bidptr) bid
-		return $ BufferSlice name fpb (int $ elems `div` n) 0x1406 normalize (4 * int n) 0 loc
-	-- FixedV n xs ->
-	-- I2_10_10_10V xs ->
-	-- UI2_10_10_10V xs ->
-	-- BlobSliced ->
-	NoneV -> return $ Vertex name NoneV loc
-	where int = fromIntegral; int' = fromIntegral
+compileVertex name NoneV loc _ = return $ (loc, Vertex name NoneV)
+compileVertex name (BlobSliced vd bs) loc normalize = do
+	bidptr <- malloc
+	bid <- glGenBuffers 1 bidptr >> peek bidptr
+	showError "glGenBuffers"
+	putStrLn $ show bid
+	glBindBuffer gl_array_buffer bid
+	showError "glBindBuffer"
+
+	let (vsize, dim, typ, _) = vertexFormat vd
+	if dim < 1 || 4 < dim
+		then error $ "compileVertex: Unacceptable dimentions found in " ++ show name
+		else return ()
+	let (fp, offset, len) = toForeignPtr bs
+	xslen <- withForeignPtr fp $ \ptr -> do
+		glBufferData gl_array_buffer (fromIntegral len)
+		             (castPtr ptr `plusPtr` offset) gl_static_draw
+		showError "glBufferData"
+		return $ fromIntegral len
+	fpb <- bindFinalizer (glDeleteBuffers 1 bidptr >> free bidptr) bid
+	return $ (loc, BufferSlice name fpb (xslen `div` dim) typ normalize
+		(vsize * fromIntegral dim) 0)
+compileVertex name vect loc normalize = do
+	bidptr <- malloc
+	bid <- glGenBuffers 1 bidptr >> peek bidptr
+	showError "glGenBuffers"
+	putStrLn $ show bid
+	glBindBuffer gl_array_buffer bid
+	showError "glBindBuffer"
+
+	let (vsize, dim, typ, withArrayLen_xs) = vertexFormat vect
+	if dim < 1 || 4 < dim
+		then error $ "compileVertex: Unacceptable dimentions found in " ++ show name
+		else return ()
+	xslen <- withArrayLen_xs $ \len ptr -> do
+		glBufferData gl_array_buffer (fromIntegral len * fromIntegral vsize)
+		             (castPtr ptr) gl_static_draw
+		showError "glBufferData"
+		return $ fromIntegral len
+	fpb <- bindFinalizer (glDeleteBuffers 1 bidptr >> free bidptr) bid
+	return $ (loc, BufferSlice name fpb (xslen `div` dim) typ normalize
+		(vsize * fromIntegral dim) 0)
+
+withArrayLen' :: (Storable a) => [a] -> (Int -> Ptr b -> IO c) -> IO c
+withArrayLen' xs f = withArrayLen xs $ \l p -> f l (castPtr p)
+
+vertexFormat v = case v of
+	ByteV n xs -> (1, n, 0x1400, withArrayLen' xs) -- GL_BYTE
+	UByteV n xs -> (1, n, 0x1401, withArrayLen' xs) -- GL_UNSIGNED_UBYTE
+	ShortV n xs -> (2, n, 0x1402, withArrayLen' xs) -- GL_SHORT
+	UShortV n xs -> (2, n, 0x1403, withArrayLen' xs) -- GL_UNSIGNED_SHORT
+	IntV n xs -> (4, n, 0x1404, withArrayLen' xs) -- GL_INT
+	UIntV n xs -> (4, n, 0x1405, withArrayLen' xs) -- GL_UNSIGNED_INT
+	FloatV n xs -> (4, n, 0x1406, withArrayLen' xs) -- GL_FLOAT
+	HalfFloatV n xs -> (2, n, 0x140B, withArrayLen' xs) -- GL_HALF_FLOAT
+	FixedV n xs -> (4, n, 0x140C, withArrayLen' xs) -- GL_FIXED
+	I2_10_10_10V xs -> (4, 1, 0x8D9F, withArrayLen' xs) -- GL_INT_2_10_10_10_REV
+	UI2_10_10_10V xs -> (4, 1, 0x8368, withArrayLen' xs) -- GL_UNSIGNED_INT_2_10_10_10_REV
+newBuffer proc = do
+	bidptr <- malloc
+	bid <- glGenBuffers 1 bidptr >> peek bidptr
+	showError "glGenBuffers"
+	putStrLn $ show bid
+	glBindBuffer gl_array_buffer bid
+	showError "glBindBuffer"
+	result <- proc
+	fpb <- bindFinalizer (glDeleteBuffers 1 bidptr >> free bidptr) bid
+	return (result, fpb)
 
 compilePicker :: Bool -> VertexPicker -> IO VertexPicker
 compilePicker instanced vp = case vp of
@@ -751,15 +809,14 @@ compilePicker instanced vp = case vp of
 	VFromCountInstanced first count divNum -> return vp
 	VFromCounts list -> do
 		let (firsts, counts) = unzip list
-		let (first', count') = (map size firsts, map size counts)
-		firstbs <- create (length list * 4) (flip pokeArray first' . castPtr)
-		countbs <- create (length list * 4) (flip pokeArray count' . castPtr)
+		firstbs <- create (length list * 4) (flip pokeArray firsts . castPtr)
+		countbs <- create (length list * 4) (flip pokeArray counts . castPtr)
 		return $ VFromCounts' firstbs countbs
 	VFromCounts' firsts counts -> return vp
-	VIndex8 index -> return vp -- XXX
-	VIndex16 index -> return vp -- XXX
-	VIndex32 index -> return vp -- XXX
-	VIndex' bref count typ offset -> return vp
+	VIndex8 index -> vindexN (withArrayLen' index) 1 0x1401 -- GL_UNSIGNED_BYTE
+	VIndex16 index -> vindexN (withArrayLen' index) 2 0x1403 -- GL_UNSIGNED_SHORT
+	VIndex32 index -> vindexN (withArrayLen' index) 4 0x1405 -- GL_UNSIGNED_INT
+	VIndex' bref count typ offset -> return vp -- glDrawElements will be called
 	VIndexInstanced8 index divNum -> return vp -- XXX
 	VIndexInstanced16 index divNum -> return vp -- XXX
 	VIndexInstanced32 index divNum -> return vp -- XXX
@@ -781,8 +838,15 @@ compilePicker instanced vp = case vp of
 	-- VFromToIndex' !BufferRef !Int !Int !GLsizei !GLenum !Int
 	DrawCallSequence xs ->
 		DrawCallSequence <$> mapM (compilePicker instanced) xs
-	where size = fromIntegral :: (Integral a) => a -> GLsizei
-
+	where
+		vindexN withArrayLen_ix size typ = do
+			(count, buffer) <- newBuffer $ do
+				withArrayLen_ix $ \count ptr -> do
+					glBufferData gl_array_buffer (fromIntegral count * size)
+					    ptr gl_static_draw
+					showError "glBufferData"
+					return $ fromIntegral count
+			return $ VIndex' buffer count typ 0
 
 -- ** Drawing
 
@@ -796,10 +860,10 @@ instance Marshal CompFunc where
 		Never    -> 0x0200
 		Less     -> 0x0201
 		Equal    -> 0x0202
-		LEqual   -> 0x0203
+		LessEq   -> 0x0203
 		Greater  -> 0x0204
-		NotEqual -> 0x0205
-		GEqual   -> 0x0206
+		NotEq    -> 0x0205
+		GreatEq  -> 0x0206
 		Always   -> 0x0207
 
 instance Marshal StencilOp where
@@ -843,22 +907,19 @@ instance Marshal Hint where
 
 setGraphicState :: GraphicState -> IO ()
 setGraphicState x = case x of
-	Use cap -> glEnable (marshal cap)
-	Unuse cap -> glDisable (marshal cap)
-	LineWidth width -> glLineWidth (realToFrac width)
+	Begin cap -> glEnable (marshal cap)
+	End cap -> glDisable (marshal cap)
+	LineWidth width -> glLineWidth width
 	FrontFace cw -> glFrontFace (if cw then 0x900 else 0x901)
-	CullFaceMode cf -> glCullFace (marshal cf)
-	PolygonOffset factor units ->
-		glPolygonOffset (realToFrac factor) (realToFrac units)
-	Scissor l b w h -> glScissor (i l) (i b) (i w) (i h)
-		where i = fromIntegral
+	CullFace cf -> glCullFace (marshal cf)
+	PolygonOffset factor units -> glPolygonOffset factor units
+	Scissor l b w h -> glScissor l b w h
 	SampleCvrg value invert ->
-		glSampleCoverage (realToFrac value) (if invert then 1 else 0)
+		glSampleCoverage value (if invert then 1 else 0)
 	StencilFunc func comp mask ->
-		glStencilFunc (marshal func) (fromIntegral comp) (fromIntegral mask)
+		glStencilFunc (marshal func) comp mask
 	StencilFuncSeparate cull f c m ->
-		glStencilFuncSeparate (marshal cull) (marshal f)
-			(fromIntegral c) (fromIntegral m)
+		glStencilFuncSeparate (marshal cull) (marshal f) c m
 	StencilOp sfail dpfail dppass ->
 		glStencilOp (marshal sfail) (marshal dpfail) (marshal dppass)
 	StencilOpSeparate cull sfail dpfail dppass ->
@@ -872,47 +933,45 @@ setGraphicState x = case x of
 	BlendFuncSeparate srgb drgb salpha dalpha ->
 		glBlendFuncSeparate (marshal srgb) (marshal drgb)
 			(marshal salpha) (marshal dalpha)
-	BlendColor r g b a -> glBlendColor (f r) (f g) (f b) (f a)
-		where f = realToFrac
+	BlendColor r g b a -> glBlendColor r g b a
 	GenerateMipmapHint hint -> glHint 0x8192 (marshal hint)
 	FragmentShaderDerivativeHint hint -> glHint 0x8B8B (marshal hint)
 
-setVertexAttr :: VertexAttr -> IO ()
-setVertexAttr va = case va of
-	Vertex _ va loc -> error "setVertexAttr: VertexAttr must be compiled!"
-	NormalizedVertex _ va loc -> error "setVertexAttr: VertexAttr must be compiled!"
-	IntVertex _ va loc -> error "setVertexAttr: VertexAttr must be compiled!"
-	Instanced divNum f loc -> do
-		setVertexAttr (f loc)
-		glVertexAttribDivisor loc (fromIntegral divNum)
-	BufferSlice _ ref size typ normalize stride offset loc -> do
+setVertexAttr :: (AttrId, VertexAttr) -> IO ()
+setVertexAttr (loc, va) = case va of
+	Vertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+	NormalizedVertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+	IntVertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+	Instanced divNum va -> do
+		setVertexAttr (loc, va)
+		glVertexAttribDivisor divNum loc
+	BufferSlice _ ref size typ normalize stride offset -> do
 		withForeignPtr ref (glBindBuffer 0x8892 . ptrToId)
 		glVertexAttribPointer loc size typ normalize stride (idToPtr offset)
 		showError "glVertexAttribPointer"
 		glEnableVertexAttribArray loc
 		showError "glEnableVertexAttribArray"
-	BufferSlicei _ ref size typ stride offset loc -> do
+	BufferSlicei _ ref size typ stride offset -> do
 		withForeignPtr ref (glBindBuffer 0x8892 . ptrToId)
 		glVertexAttribIPointer loc size typ stride (idToPtr offset)
 		glEnableVertexAttribArray loc
-	ConstAttr1f _ x loc -> d loc >> glVertexAttrib1f loc (r x)
-	ConstAttr2f _ (Vec2 x y) loc -> d loc >> glVertexAttrib2f loc (r x) (r y)
-	ConstAttr3f _ (Vec3 x y z) l -> d l >> glVertexAttrib3f l (r x) (r y) (r z)
-	ConstAttr4f _ (Vec4 x y z w) l -> d l >> glVertexAttrib4f l (r x) (r y) (r z) (r w)
-	ConstAttr4i _ x y z w loc -> d loc >> glVertexAttribI4i loc x y z w
-	ConstAttr4ui _ x y z w loc -> d loc >> glVertexAttribI4ui loc x y z w
+	ConstAttr1f _ x -> d >> glVertexAttrib1f loc x
+	ConstAttr2f _ (Vec2 x y) -> d >> glVertexAttrib2f loc x y
+	ConstAttr3f _ (Vec3 x y z) -> d >> glVertexAttrib3f loc x y z
+	ConstAttr4f _ (Vec4 x y z w) -> d >> glVertexAttrib4f loc x y z w
+	ConstAttr4i _ x y z w -> d >> glVertexAttribI4i loc x y z w
+	ConstAttr4ui _ x y z w -> d >> glVertexAttribI4ui loc x y z w
 	where
-		r = realToFrac
-		d = glDisableVertexAttribArray
+		d = glDisableVertexAttribArray loc
 
 
 setUniformVar :: UniformVar -> IO ()
 setUniformVar (UniformVar _ val loc) =
 	case val of
-		Uniform1f x -> glUniform1f loc $ r x
-		Uniform2f (Vec2 x y) -> glUniform2f loc (r x) (r y)
-		Uniform3f (Vec3 x y z) -> glUniform3f loc (r x) (r y) (r z)
-		Uniform4f (Vec4 x y z w) -> glUniform4f loc (r x) (r y) (r z) (r w)
+		Uniform1f x -> glUniform1f loc x
+		Uniform2f (Vec2 x y) -> glUniform2f loc x y
+		Uniform3f (Vec3 x y z) -> glUniform3f loc x y z
+		Uniform4f (Vec4 x y z w) -> glUniform4f loc x y z w
 		Uniform1fv xs -> withArray xs (glUniform1fv loc (len xs) . castPtr)
 		Uniform2fv xs -> withArray xs (glUniform2fv loc (len xs) . castPtr)
 		Uniform3fv xs -> withArray xs (glUniform3fv loc (len xs) . castPtr)
@@ -942,7 +1001,6 @@ setUniformVar (UniformVar _ val loc) =
 		Uniform3uiv xs -> withArray xs (glUniform3uiv loc (len xs))
 		Uniform4uiv xs -> withArray xs (glUniform4uiv loc (len xs))-}
 	where
-		r = realToFrac :: Float -> GLfloat
 		len = fromIntegral . length
 	{-- ES 3.0
 	| UniformMat2x3 !(Vec2, Vec2, Vec2) -- not sure these are good
@@ -962,7 +1020,7 @@ setUniformVar (UniformVar _ val loc) =
 
 instance Marshal Capability where
 	marshal x = case x of
-		CullFace              -> 0x0B44
+		CullFaceTest          -> 0x0B44
 		Blend                 -> 0x0BE2
 		Dither                -> 0x0BD0
 		StencilTest           -> 0x0B90
@@ -976,12 +1034,13 @@ instance Marshal Capability where
 	-- SampleMask -> 0x
 
 withBSBS :: B.ByteString -> B.ByteString
-         -> (Ptr a -> Ptr b -> Int -> IO c)
+         -> (Ptr a -> Ptr b -> Word32 -> IO c)
          -> IO c
 withBSBS bs1 bs2 f =
 	withForeignPtr fp1 $ \p1 ->
 		withForeignPtr fp2 $ \p2 ->
-			f (castPtr $ p1 `plusPtr` off1) (castPtr $ p2 `plusPtr` off2) len
+			f (castPtr $ p1 `plusPtr` off1)
+			  (castPtr $ p2 `plusPtr` off2) (fromIntegral len)
 	where
 		(fp1,off1,len) = toForeignPtr bs1
 		(fp2,off2,_) = toForeignPtr bs2
@@ -989,16 +1048,15 @@ withBSBS bs1 bs2 f =
 invokeDraw :: DrawMode -> VertexPicker -> IO ()
 invokeDraw mode picker = case picker of
 	VFromCount first count -> do
-		glDrawArrays m (int first) (int count)
+		glDrawArrays m first count
 		showError "glDrawArrays"
 	VFromCountInstanced first count primcount ->
-		glDrawArraysInstanced m (int first) (int count) (int primcount)
+		glDrawArraysInstanced m first count primcount
 	VFromCounts list ->
-		forM_ list (\(fst, cnt) -> glDrawArrays m (int fst) (int cnt))
+		forM_ list (\(fst, cnt) -> glDrawArrays m fst cnt)
 	VFromCounts' firstbs countbs ->
 		withBSBS countbs firstbs $ \cptr fptr clen ->
-			glMultiDrawArraysEXT m fptr cptr
-				(int $ clen `div` sizeOf (0 :: GLsizei))
+			glMultiDrawArraysEXT m fptr cptr (unsafeShiftR clen 2)
 	VIndex' ref count typ offset -> do
 		-- bind GL_ELEMENT_ARRAY_BUFFER = 0x8893
 		withForeignPtr ref (glBindBuffer 0x8893 . ptrToId)
@@ -1008,11 +1066,9 @@ invokeDraw mode picker = case picker of
 	--VIndices8/16/32 ... ->
 	VIndices' countbs typ indicesbs ->
 		withBSBS countbs indicesbs $ \cptr iptr clen ->
-			glMultiDrawElementsEXT m cptr typ iptr
-				(int $ clen `div` sizeOf (0 :: GLsizei))
+			glMultiDrawElementsEXT m cptr typ iptr (unsafeShiftR clen 2)
 	-- VFromToIndex' ...
 	DrawCallSequence xs -> mapM_ (invokeDraw mode) xs
 	_ -> error $ "invokeDraw: VertexPicker (" ++ show picker ++ ") must be compiled."
 	where
 		m = marshal mode
-		int = fromIntegral
