@@ -212,8 +212,8 @@ data VertexAttr =
 	| ConstAttr2f String !Vec2
 	| ConstAttr3f String !Vec3
 	| ConstAttr4f String !Vec4
-	| ConstAttr4i String !GLint !GLint !GLint !GLint -- ^ introduced in ES 3.0
-	| ConstAttr4ui String !GLuint !GLuint !GLuint !GLuint -- ^ introduced in ES 3.0
+	| ConstAttr4i String !Int32 !Int32 !Int32 !Int32 -- ^ introduced in ES 3.0
+	| ConstAttr4ui String !Word32 !Word32 !Word32 !Word32 -- ^ introduced in ES 3.0
 	deriving (Show, Eq)
 
 attrVarName :: VertexAttr -> String
@@ -266,14 +266,14 @@ data UniformValue =
 	| Uniform2fv ![Vec2]
 	| Uniform3fv ![Vec3]
 	| Uniform4fv ![Vec4]
-	| Uniform1i !GLint
-	| Uniform2i !(GLint, GLint) -- should make sth like IVec2?
-	| Uniform3i !(GLint, GLint, GLint)
-	| Uniform4i !(GLint, GLint, GLint, GLint)
-	| Uniform1iv ![GLint]
-	| Uniform2iv ![(GLint, GLint)]
-	| Uniform3iv ![(GLint, GLint, GLint)]
-	| Uniform4iv ![(GLint, GLint, GLint, GLint)]
+	| Uniform1i !Int32
+	| Uniform2i !(Int32, Int32) -- should make sth like IVec2?
+	| Uniform3i !(Int32, Int32, Int32)
+	| Uniform4i !(Int32, Int32, Int32, Int32)
+	| Uniform1iv ![Int32]
+	| Uniform2iv ![(Int32, Int32)]
+	| Uniform3iv ![(Int32, Int32, Int32)]
+	| Uniform4iv ![(Int32, Int32, Int32, Int32)]
 	| UniformMat2 !Mat2
 	| UniformMat3 !Mat3
 	| UniformMat4 !Mat4
@@ -283,14 +283,14 @@ data UniformValue =
 	| UniformTexture !Texture
 	| UniformTextures ![Texture]
 	-- ES 3.0
-	| Uniform1ui !GLuint
-	| Uniform2ui !(GLuint, GLuint)
-	| Uniform3ui !(GLuint, GLuint, GLuint)
-	| Uniform4ui !(GLuint, GLuint, GLuint, GLuint)
-	| Uniform1uiv ![GLuint]
-	| Uniform2uiv ![(GLuint, GLuint)]
-	| Uniform3uiv ![(GLuint, GLuint, GLuint)]
-	| Uniform4uiv ![(GLuint, GLuint, GLuint, GLuint)]
+	| Uniform1ui !Word32
+	| Uniform2ui !(Word32, Word32)
+	| Uniform3ui !(Word32, Word32, Word32)
+	| Uniform4ui !(Word32, Word32, Word32, Word32)
+	| Uniform1uiv ![Word32]
+	| Uniform2uiv ![(Word32, Word32)]
+	| Uniform3uiv ![(Word32, Word32, Word32)]
+	| Uniform4uiv ![(Word32, Word32, Word32, Word32)]
 	| UniformMat2x3 !(Vec2, Vec2, Vec2) -- not sure these are good
 	| UniformMat3x2 !(Vec3, Vec3) -- [Float]
 	| UniformMat2x4 !(Vec2, Vec2, Vec2, Vec2)
@@ -511,6 +511,12 @@ compileCall glm@(GLManager version cache)
 
 	return d
 
+compileCall :: GLManager -> DrawCall -> IO DrawCall
+compileCall' glm dc = compileCall glm dc >>= \x -> case x of
+	Left errors -> error (show errors)
+	Right dc -> return dc
+
+
 eitherIO :: (Monad m) => Either a b -> (b -> m (Either a c)) -> m (Either a c)
 eitherIO (Right r) f = f r
 eitherIO (Left l) _ = return (Left l)
@@ -541,10 +547,8 @@ drawData (DrawCall mode prog conf uniforms attribs picker) = do
 drawData (DrawTexture ref u v tw th x y z w h) = do
 	-- GL_TEXTURE_2D = 0x0DE1, GL_TEXTURE_CROP_RECT_OES = 0x8B9D
 	withForeignPtr ref (glBindTexture 0x0DE1 . ptrToId)
-	withArray [r u,r v,r tw,r th] (glTexParameteriv 0x0DE1 0x8B9D)
-	glDrawTexiOES (r x) (r y) (r z) (r w) (r h) -- disable AlphaTest?
-	where r = fromIntegral
-
+	withArray [u, v, tw, th] (glTexParameteriv 0x0DE1 0x8B9D)
+	glDrawTexiOES x y z w h -- disable AlphaTest?
 
 
 -- * Internals
@@ -792,6 +796,7 @@ vertexFormat v = case v of
 	FixedV n xs -> (4, n, 0x140C, withArrayLen' xs) -- GL_FIXED
 	I2_10_10_10V xs -> (4, 1, 0x8D9F, withArrayLen' xs) -- GL_INT_2_10_10_10_REV
 	UI2_10_10_10V xs -> (4, 1, 0x8368, withArrayLen' xs) -- GL_UNSIGNED_INT_2_10_10_10_REV
+
 newBuffer proc = do
 	bidptr <- malloc
 	bid <- glGenBuffers 1 bidptr >> peek bidptr
