@@ -65,12 +65,12 @@ quad = DrawUnit
 	(Program "es2es3"
 		[ VertexShader "test.vs" vertexShader
 		, FragmentShader "test.fs" fragmentShader ])
-	(DrawConfig True True False False)
+	[]--(DrawConfig True True False False)
 	[ UniformVar "scaleRot" $ UniformMat2 (structMat2 [1,0,0,1])
 	, UniformVar "offset" $ Uniform2f (Vec2 0 0) ]
 	[ Vertex "pos" (FloatV 2 quadPos)
 	, NormalizedVertex "color" (UByteV 3 quadCol) ]
-	[]
+	--[]
 	(VFromCount 0 4)
 
 vertexShader = BS.pack $
@@ -126,7 +126,7 @@ es2draw (Context win seed call startedAt _) = do
 	forM_ [0..wx*hx-1] $ \i -> do
 		let a = angles !! i
 		-- modify call here
-		let DrawCall m b c [UniformVar _ _ h, UniformVar _ _ j] e f g = call
+		let DrawCall m b c [UniformVar _ _ h, UniformVar _ _ j] e f = call
 		let unif =
 			[ UniformVar "scaleRot" (UniformMat2 $
 				structMat2 [r_x,0,0,r_y] .*. rotMatrix2 a) h
@@ -134,7 +134,7 @@ es2draw (Context win seed call startedAt _) = do
 				Vec2 (2/float wx*(0.5+float(i`mod`wx))-1) (2/float hx*(0.5+float(i`div`wx))-1)) j
 			]
 		--putStr "6 " >> getCurrentTime >>= putStrLn . show
-		drawData $ DrawCall m b c unif e f g
+		drawData $ DrawCall m b c unif e f
 		--putStr "9 " >> getCurrentTime >>= putStrLn . show
 
 float :: Int -> Float
