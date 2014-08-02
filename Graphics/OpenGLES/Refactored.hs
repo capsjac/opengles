@@ -1,4 +1,7 @@
 {-# LANGUAGE CPP, GADT #-}
+-- | Read the OpenGL ES man pages for detail.
+-- <http://www.khronos.org/opengles/sdk/docs/man31/>
+-- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
 module Graphics.OpenGLES.Refactored where
 import Control.Applicative
 import Control.Monad
@@ -12,11 +15,11 @@ import Foreign hiding (newForeignPtr, addForeignPtrFinalizer)
 import Foreign.C.String
 import Foreign.Concurrent -- (GHC only)
 import Graphics.OpenGLES.Base
-
+import Graphics.OpenGLES.Env
 
 -- * Core Data Types
 
-data GLCall =
+data GLCall a =
 	  DrawCall
 		!DrawMode !Program ![GraphicState]
 		![UniformVar] ![(AttrId, VertexAttr)] !VertexPicker
@@ -31,19 +34,48 @@ data GLCall =
 	-- GenProgram
 	-- GenBuffer
 	-- GenTexture
+	-- GenFramebuffer
+	-- GenRenderbuffer
+	-- SetFramebuffer in GS?
 	-- BeginQuery
 	-- EndQuery
+	-- GenTransformFeedback
 	-- BeginTransformFeedback
 	-- EndTransformFeedback
 	deriving (Read, Show)
 
 
-type GLIO a = EitherT [String] IO a
+-- ** Draw Modes
 
-loadProgram :: GLManager -> String -> [Shader] -> ([Shader] -> Int -> IO ())
-             -> GLIO (ProgramRef, [ShaderRef])
+newtype DrawMode = DrawMode Int32 deriving (Read, Show)
+asPoints = DrawMode 0
+asLines = DrawMode 1
+asLineLoop = DrawMode 2
+asLineStrip = DrawMode 3
+asTriangles = DrawMode 4
+asTriangleStrip = DrawMode 5
+asTriangleFan = DrawMode 6
 
--- ** Graphic State
+-- ** Shader
+-- | [String] A program name. This name will be shown in error messages and used as binary cache key.
+-- 
+-- [Shaders] One or more 'VertexShader' and 'FragmentShader' can be specified.
+-- Note: Only 1 main() is allowed for each type of shaders.
+data Program' = (ref, name)
+	deriving (Read, Show)
+	-- GLManager type: setCompiledProgs[(name,blob)], getAllProgramBinaries
+
+-- | [String] Name of the shader.
+-- [ByteString] Shader's source code. Encoding is UTF-8 (ES 3.0+) or ASCII (2.0).
+-- On using TransformFeedbacks, ...
+data Shader =
+	  VertexShader String B.ByteString
+	| VertexShaderTF String B.ByteString [String]
+	| FragmentShader String B.ByteString
+	| ComputeShader String B.ByteString
+	deriving (Read, Show)
+
+-- ** Graphic States
 
 -- | Draw configurations on Rasterization and Per-Fragment Operations.
 -- Note: Graphic state is sticky.
@@ -76,17 +108,6 @@ data GraphicState =
 	| GenerateMipmapHint Hint
 	| FragmentShaderDerivativeHint Hint -- ^ introduced in ES 3.0
 	deriving (Read, Show)
-
--- ** Drawing
-
-newtype DrawMode = DrawMode Int32 deriving (Read, Show)
-asPoints = DrawMode 0
-asLines = DrawMode 1
-asLineLoop = DrawMode 2
-asLineStrip = DrawMode 3
-asTriangles = DrawMode 4
-asTriangleStrip = DrawMode 5
-asTriangleFan = DrawMode 6
 
 newtype Capability = Capability Int32 deriving (Read, Show)
 cullFaceTest = Capability 0x0B44
@@ -153,6 +174,72 @@ dontCare = Hint 0x1100
 fastest  = Hint 0x1101
 nicest   = Hint 0x1102
 
+-- ** Sampler
+
+-- 2d vs. 3d / mag + min vs. max
+-- | (Texture wrap mode, A number of ANISOTROPY filter sampling points
+-- (specify 0 to disable anisotropy filter), (Fallback) Mag and Min filters).
+-- 
+-- When /EXT_texture_filter_anisotropic/ is not supported, fallback filters
+-- are used instead.
+data Sampler =
+	  Sampler2D (WrapMode, WrapMode) Int32 (MagFilter, MinFilter)
+	| Sampler3D (WrapMode, WrapMode, WrapMode) Int32 (MagFilter, MinFilter)
+	deriving (Read, Show)
+
+newtype MagFilter = MagFilter Int32 deriving (Read, Show)
+magNearest = MagFilter 0x2600
+magLinear = MagFilter 0x2601
+
+newtype MinFilter = MinFilteer Int32 deriving (Read, Show)
+minNearest = MinFilter 0x2600
+minLinear = MinFilter 0x2601
+nearestMipmapNearest = MinFilter 0x2700
+linearMipmapNearest = MinFilter 0x2701
+nearestMipmapLinear = MinFilter 0x2702
+linearMipmapLinear = MinFilter 0x2703
+
+-- TODO: NPOT => ClampToEdge only check / has ext?
+newtype WrapMode = WrapMode Int32 deriving (Read, Show)
+repeatTexture = WrapMode 0x2901
+clampToEdge = WrapMode 0x812F
+mirroredRepeat = WrapMode 0x8370
+
+-- ** Vertex Picker
+
+-- | VFromCounts -> VFromCounts', VIndex8/16/32 -> VIndex(Instanced)',
+-- VIndices8/16/32 -> VIndices' or DrawCallSequence[VIndex(Instanced)']
+--
+-- Version/Ext fallback feature is not yet. (See above)
+data VertexPicker =
+	  VFromCount !Int32 !Word32
+	| VFromCountInstanced !Int32 !Word32 !Word32
+	| VFromCounts ![(Int32, Word32)] -- XXX native array
+	| VFromCounts' !B.ByteString !B.ByteString
+	-- ^ Wrapping glMultiDrawArraysEXT
+	| VIndex8 ![Word8]
+	| VIndex16 ![Word16]
+	| VIndex32 ![Word32]
+	| VIndex' !BufferRef !GLsizei !GLenum !Int
+	-- ^ Wrapping glDrawElements
+	| VIndexInstanced8 ![Word8] !Int
+	| VIndexInstanced16 ![Word16] !Int
+	| VIndexInstanced32 ![Word32] !Int
+	| VIndexInstanced' !BufferRef !GLsizei !GLenum !Int !GLsizei
+	-- ^ Wrapping glDrawElementsInstanced
+	| VIndices8 ![[Word8]]
+	| VIndices16 ![[Word16]]
+	| VIndices32 ![[Word32]]
+	| VIndices' !B.ByteString GLenum !B.ByteString
+	-- ^ Wrapping glMultiDrawElementsEXT
+	-- .| VFromToIndex8/16/32 !Int !Int ![Word8/16/32]
+	-- .| VFromToIndex' !BufferRef !Int !Int !GLsizei !GLenum !Int
+	-- .^ Wrapping glDrawRangeElements
+	| DrawCallSequence ![VertexPicker]
+	deriving (Read, Show)
+
+-- ** ClearBuffer
+
 newtype ClearBufferFlags = ClearBufferFlag Int32 deriving (BIts, Read, Show)
 clearDepth = ClearBufferFlag 0x100
 clearStencil = ClearBufferFlag 0x400
@@ -163,21 +250,39 @@ clearColor = ClearBufferFlag 0x4000
 -- ** Initialization
 
 data GLManager = GLManager
-	{ glAPIVersion :: GLVersion -- ^ set API version to be used
-	, compiledProgramCache :: IORef [(String, B.ByteString)]
+	{ glAPIVersion :: GLESVersion -- ^ set API version to be used
+	, glProgramCache :: IORef [(String, ProgramBinary)]
 	-- ^ get/set after/before program linkage
 	--, glRefHolder :: [ForeignPtr GLuint]
 	} deriving Show
+
+type ProgramBinary = B.ByteString
 instance Show (IORef a) where show = const "(IORef ..)"
 
-data GLVersion = ES2 | ES3 | ES3_1 deriving Show
+data GLESVersion = ES2 | ES3 | ES3_1 deriving Show
 
 initGLManager :: IO GLManager
-initGLManager = newIORef [] >>= return . GLManager ES2 
+initGLManager = newIORef [] >>= return . GLManager ver
+	where ver = case (glEnv majorVersion, glEnv minorVersion) of
+		(3, 1) -> ES3_1
+		(3, 0) -> ES3
+		(0, 0) -> ES2
+		version -> error $ "initGLManager: unknown version " ++ show version
+
+setProgramCache :: [(String, ProgramBinary)] -> GLManager -> IO ()
+setProgramCache cache glm = writeIORef cache (glProgramCache glm)
+
+type GLIO a = EitherT [String] IO a
+
+loadProgram :: GLManager
+             -> String
+             -> [Shader]
+             -> ([Shader] -> Int -> Maybe ProgramBinary -> IO ())
+             -> GLIO (ProgramRef, [ShaderRef])
 
 -- ** Draw
-drawData :: DrawCall -> IO ()
-drawData (DrawCall mode prog conf uniforms attribs picker) = do
+drawData :: DrawCall a -> IO ()
+drawData (DrawCall (Drawmode mode) prog conf uniforms attribs picker) = do
 	-- draw config
 	mapM_ setGraphicState conf
 
@@ -194,14 +299,18 @@ drawData (DrawCall mode prog conf uniforms attribs picker) = do
 	invokeDraw mode picker
 
 drawData (DrawTexture ref u v tw th x y z w h) = do
-	-- GL_TEXTURE_2D = 0x0DE1, GL_TEXTURE_CROP_RECT_OES = 0x8B9D
+	-- GL_TEXTURE_2D = 0x0DE1
 	withForeignPtr ref (glBindTexture 0x0DE1 . ptrToId)
+	-- GL_TEXTURE_CROP_RECT_OES = 0x8B9D
 	withArray [u, v, tw, th] (glTexParameteriv 0x0DE1 0x8B9D)
 	glDrawTexiOES x y z w h -- disable AlphaTest?
 
+-- ** Get parameter
 
 -- * Internals
 -- ** Garbage collection on GL Objects
+type GLObject a = ForeignPtr Word32
+-- forceFreeGLObjectsNow :: forall a. [GLObject a] -> IO ()
 
 bindFinalizer :: IO () -> ResourceId -> IO (ForeignPtr ResourceId)
 bindFinalizer f i = newForeignPtr (idToPtr i) (putStrLn "Fin" >> f)

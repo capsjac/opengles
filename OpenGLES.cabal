@@ -28,6 +28,7 @@ library
     Graphics.OpenGLES,
     Graphics.OpenGLES.Base,
     Graphics.OpenGLES.Core,
+    Graphics.OpenGLES.Env,
     Graphics.OpenGLES.Utils
   
   other-extensions: ForeignFunctionInterface
