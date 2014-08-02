@@ -346,18 +346,18 @@ type GLhalf = Word16
 
 -- * Wrappers
 
-isGLProcAvailable :: String -> Bool
+{-isGLProcAvailable :: String -> Bool
 isGLProcAvailable name = let
 	proc = castFunPtrToPtr (eglGetProcAddress name)
 	undef = castFunPtrToPtr (eglGetProcAddress "glUndefined")
 	in abs (proc `minusPtr` undef) > 0x10000
 	-- eglGetProcAddress may return an useless pointer when
 	-- given name starts with "gl" but not implemented.
-
+-}
 -- Declere must-have functions
 #define GL_PROC(_procname, _typ) \
 foreign import ccall unsafe "GLES2/gl2.h" _procname :: _typ; \
-{-# INLINE _procname #-} \
+{- avoid inlining to save size # INLINE _procname #-} \
 
 -- Work around for a runtime link error
 #define GL_EXT(_procname, _typ) \
@@ -628,3 +628,72 @@ GL_EXT(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> IO ())
 GL_EXT(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> IO ())
 GL_EXT(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> IO ())
 
+-- ** OpenGL ES 3.1
+GL_EXT(glDispatchCompute, GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glDispatchComputeIndirect, GLintptr -> IO ())
+GL_EXT(glDrawArraysIndirect, GLenum -> Ptr () -> IO ())
+GL_EXT(glDrawElementsIndirect, GLenum -> GLenum -> Ptr () -> IO ())
+GL_EXT(glFramebufferParameteri, GLenum -> GLenum -> GLint -> IO ())
+GL_EXT(glGetFramebufferParameteriv, GLenum -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetProgramInterfaceiv, GLuint -> GLenum -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetProgramResourceIndex, GLuint -> GLenum -> Ptr GLchar -> IO ())
+GL_EXT(glGetProgramResourceName, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+GL_EXT(glGetProgramResourceiv, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glGetProgramResourceLocation, GLuint -> GLenum -> Ptr GLchar -> IO ())
+GL_EXT(glUseProgramStages, GLuint -> GLbitfield -> GLuint -> IO ())
+GL_EXT(glActiveShaderProgram, GLuint -> GLuint -> IO ())
+GL_EXT(glCreateShaderProgramv, GLenum -> GLsizei -> Ptr CString -> IO ())
+GL_EXT(glBindProgramPipeline, GLuint -> IO ())
+GL_EXT(glDeleteProgramPipelines, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glGenProgramPipelines, GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glIsProgramPipeline, GLuint -> IO ())
+GL_EXT(glGetProgramPipelineiv, GLuint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glProgramUniform1i, GLuint -> GLint -> GLint -> IO ())
+GL_EXT(glProgramUniform2i, GLuint -> GLint -> GLint -> GLint -> IO ())
+GL_EXT(glProgramUniform3i, GLuint -> GLint -> GLint -> GLint -> GLint -> IO ())
+GL_EXT(glProgramUniform4i, GLuint -> GLint -> GLint -> GLint -> GLint -> GLint -> IO ())
+GL_EXT(glProgramUniform1ui, GLuint -> GLint -> GLuint -> IO ())
+GL_EXT(glProgramUniform2ui, GLuint -> GLint -> GLuint -> GLuint -> IO ())
+GL_EXT(glProgramUniform3ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glProgramUniform4ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> GLuint -> IO ())
+GL_EXT(glProgramUniform1f, GLuint -> GLint -> GLfloat -> IO ())
+GL_EXT(glProgramUniform2f, GLuint -> GLint -> GLfloat -> GLfloat -> IO ())
+GL_EXT(glProgramUniform3f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> IO ())
+GL_EXT(glProgramUniform4f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> GLfloat -> IO ())
+GL_EXT(glProgramUniform1iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glProgramUniform2iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glProgramUniform3iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glProgramUniform4iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> IO ())
+GL_EXT(glProgramUniform1uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glProgramUniform2uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glProgramUniform3uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glProgramUniform4uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> IO ())
+GL_EXT(glProgramUniform1fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniform2fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniform3fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniform4fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix2x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix3x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix2x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix4x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix3x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glProgramUniformMatrix4x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> IO ())
+GL_EXT(glValidateProgramPipeline, GLuint -> IO ())
+GL_EXT(glGetProgramPipelineInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+GL_EXT(glBindImageTexture, GLuint -> GLuint -> GLint -> GLboolean -> GLint -> GLenum -> GLenum -> IO ())
+GL_EXT(glGetBooleani_v, GLenum -> GLuint -> Ptr GLboolean -> IO ())
+GL_EXT(glMemoryBarrier, GLbitfield -> IO ())
+GL_EXT(glMemoryBarrierByRegion, GLbitfield -> IO ())
+GL_EXT(glTexStorage2DMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLboolean -> IO ())
+GL_EXT(glGetMultisamplefv, GLenum -> GLuint -> Ptr GLfloat -> IO ())
+GL_EXT(glSampleMaski, GLuint -> GLbitfield -> IO ())
+GL_EXT(glGetTexLevelParameteriv, GLenum -> GLint -> GLenum -> Ptr GLint -> IO ())
+GL_EXT(glGetTexLevelParameterfv, GLenum -> GLint -> GLenum -> Ptr GLfloat -> IO ())
+GL_EXT(glBindVertexBuffer, GLuint -> GLuint -> GLintptr -> GLsizei -> IO ())
+GL_EXT(glVertexAttribFormat, GLuint -> GLint -> GLenum -> GLboolean -> GLuint -> IO ())
+GL_EXT(glVertexAttribIFormat, GLuint -> GLint -> GLenum -> GLuint -> IO ())
+GL_EXT(glVertexAttribBinding, GLuint -> GLuint -> IO ())
+GL_EXT(glVertexBindingDivisor, GLuint -> GLuint -> IO ())
