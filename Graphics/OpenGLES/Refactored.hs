@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, GADT #-}
+{-# LANGUAGE CPP, GADTs #-}
 -- | Read the OpenGL ES man pages for detail.
 -- <http://www.khronos.org/opengles/sdk/docs/man31/>
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
@@ -17,31 +17,78 @@ import Foreign.Concurrent -- (GHC only)
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
 
+-- Performance Memo
+-- WRONG -> L1Cache is fast. RIGHT -> Main memory is slow.
+-- 
+-- data Foo = Foo Char Int deriving (Data,Typeable,Show)
+-- will add 20KB per derivation. -O make things worse: 36KB
+-- Conclusion: Avoid using meta functions in busy loop
+
 -- * Core Data Types
 
-data GLCall a =
-	  DrawCall
-		!DrawMode !Program ![GraphicState]
-		![UniformVar] ![(AttrId, VertexAttr)] !VertexPicker
-	| DrawTexture !TextureRef !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32
-	| SetGraphicState ![GraphicState]
+type GLName = CString -- eliminate hungry [Char]s. +rewrite rule.
+
+
+data GLCall a where
+	DrawCall
+		:: !DrawMode
+		-> !Program
+		-> ![GraphicState]
+		-> ![UniformUpdate]
+		-> ![VerticesUpdate]
+		-> !VertexPicker
+		-> GLCall ()
+	DrawTextureExt -- XXX test: may not work with 2.0+ context.
+		:: !TextureRef
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> !Int32
+		-> GLCall ()
+	-- XXX integrate as buffer operations?
+	ViewPort -- ^ Cliping rendering area. The origin is left-bottom.
+		:: !Int32 -- ^ x
+		-> !Int32 -- ^ y
+		-> !Int32 -- ^ w
+		-> !Int32 -- ^ h
+		-> GLCall GLError
+	SetGraphicState :: ![GraphicState] -> GLCall GLError
+	FlushCommandQ :: GLCall () -- ^ Use with care. It can be expensive.
+	FinishCommands :: GLCall () -- ^ Use with care. It can be expensive.
 	-- .|WaitForFinishTimeout Bool Int64
 	-- .^ ES 3.0 required. set GL_SYNC_FLUSH_COMMANDS_BIT or not, timeout in nanoseconds
 	-- .| EnsureGPUFinish -- ^ ES 3.0 required. Nonblock
-	-- FenceGPUApple
-	| ClearBuffer !ClearBufferBits
-	-- GenShader
-	-- GenProgram
-	-- GenBuffer
-	-- GenTexture
-	-- GenFramebuffer
-	-- GenRenderbuffer
+	-- FenceGPUApple(blockgpuwhiledraw)
+	--waitForGPUCommandsComplete(GL_SYNC_GPU_COMMANDS_COMPLETE)
+	ClearBuffer
+		:: !ClearBufferBits
+		-> GLCall GLError
+	Upload :: BufferObj -> () -> GLCall GLError
+	GetUniform :: ProgramObj -> GLName -> GLCall GLint
+	GetAttrib :: ProgramObj -> GLName -> GLCall GLint
+	GenShader
+		:: Shader
+		-> GLCall (Either [String] ShaderObj)
+	GenProgram
+		:: GLName
+		-> [ShaderObj]
+		-> Maybe (TransformFeedbackComponent, [GLName])
+		-> GLCall (Either [String] ProgramObj)
+	-- GenBuffer :: BufferType -> a -> BufferUsage -> GLCall (BufferObj a)
+	-- GenTexture :: GLCall TextureObj
+	-- GenFramebuffer :: GLCall FBO
+	-- GenRenderbuffer :: GLCall RBO
 	-- SetFramebuffer in GS?
-	-- BeginQuery
+	-- BeginQuery 
 	-- EndQuery
-	-- GenTransformFeedback
-	-- BeginTransformFeedback
-	-- EndTransformFeedback
+	GenTransformFeedback :: [VBO] -> GLCall TransformFeedback
+	BeginTransformFeedback :: TransformFeedback -> DrawMode -> GLCall ()
+	EndTransformFeedback :: GLCall ()
 	deriving (Read, Show)
 
 
@@ -61,8 +108,8 @@ asTriangleFan = DrawMode 6
 -- 
 -- [Shaders] One or more 'VertexShader' and 'FragmentShader' can be specified.
 -- Note: Only 1 main() is allowed for each type of shaders.
-data Program' = (ref, name)
-	deriving (Read, Show)
+--data Program' = (ref, name)
+--	deriving (Read, Show)
 	-- GLManager type: setCompiledProgs[(name,blob)], getAllProgramBinaries
 
 -- | [String] Name of the shader.
@@ -122,10 +169,10 @@ sampleCoverage = Capability 0x80A0
 primitiveRestartFixedIndex = Capability 0x8D69
 rasterizerDiscard = Capability 0x8C89
 
-newtype CullFaceSide = CullFace Int32 deriving (Read, Show)
-frontFace = CullFace 0x0404
-backFace = CullFace 0x0405
-frontAndBack = CullFace 0x408
+newtype CullFace = CullFaceSide Int32 deriving (Read, Show)
+frontFace = CullFaceSide 0x0404
+backFace = CullFaceSide 0x0405
+frontAndBack = CullFaceSide 0x408
 
 newtype CompFunc = CompFunc deriving (Read, Show)
 glNever    = CompFunc 0x0200
@@ -137,15 +184,15 @@ glNotEq    = CompFunc 0x0205
 glGreatEq  = CompFunc 0x0206
 glAlways   = CompFunc 0x0207
 
-newtype StencilOp = StencilOp Int32 deriving (Read, Show)
-opZero     = StencilOp 0x0000
-opKeep     = StencilOp 0x1E00
-opReplace  = StencilOp 0x1E01
-opIncr      = StencilOp 0x1E02
-opDecr     = StencilOp 0x1E03
-opInvert   = StencilOp 0x150A
-opIncrWrap = StencilOp 0x8507
-opDecrWrap = StencilOp 0x8508
+newtype StencilOp = StencilOp_ Int32 deriving (Read, Show)
+opZero     = StencilOp_ 0x0000
+opKeep     = StencilOp_ 0x1E00
+opReplace  = StencilOp_ 0x1E01
+opIncr      = StencilOp_ 0x1E02
+opDecr     = StencilOp_ 0x1E03
+opInvert   = StencilOp_ 0x150A
+opIncrWrap = StencilOp_ 0x8507
+opDecrWrap = StencilOp_ 0x8508
 
 newtype BlendOp = BlendOp Int32 deriving (Read, Show)
 addBlending        = BlendOp 0x8006
@@ -191,7 +238,7 @@ newtype MagFilter = MagFilter Int32 deriving (Read, Show)
 magNearest = MagFilter 0x2600
 magLinear = MagFilter 0x2601
 
-newtype MinFilter = MinFilteer Int32 deriving (Read, Show)
+newtype MinFilter = MinFilter Int32 deriving (Read, Show)
 minNearest = MinFilter 0x2600
 minLinear = MinFilter 0x2601
 nearestMipmapNearest = MinFilter 0x2700
@@ -205,6 +252,118 @@ repeatTexture = WrapMode 0x2901
 clampToEdge = WrapMode 0x812F
 mirroredRepeat = WrapMode 0x8370
 
+-- ** Vertex Attribute
+
+data VertexAttr = (!GLint, String, VertexType)
+	deriving (Read, Show)
+
+data VertexType =
+	  Vertex GLDimention IsNormalized 
+	| IntVertex GLDimention
+	deriving (Read, Show)
+
+newtype GLDimention = GLDimention GLInt deriving (Read, Show)
+gl1 = GLDimention 1
+gl2 = GLDimention 2
+gl3 = GLDimention 3
+gl4 = GLDimention 4
+-- XXX mat4? vec1[4]? allowed?
+
+type IsNormalized = Bool
+
+-- ** Buffer
+data Buffer = 
+	  Vertex VertexData
+	-- ^ for vec[1234] Floating integer data per vertex
+	| NormalizedVertex VertexData
+	-- ^ for vec[1234] Clamp values to [0,1] ([-1,1] if signed)
+	| IntVertex VertexData
+	-- ^ for ivec[1234] Integer variant of Vertex
+	| Instanced !Word32 !VertexAttr
+	-- ^ Treat as: let vertexList' = concatMap (replicate instanceNum) vertexList
+	| BufferSlice !BufferRef !GLint !GLenum !GLboolean !GLsizei !Int
+	-- ^ Internally used. Wrapping glVertexAttribPointer()
+	| BufferSlicei !BufferRef !GLint !GLenum !GLsizei !Int
+	-- ^ Internally used. Wrapping glVertexAttribIPointer()
+	| ConstAttr1f !Float
+	| ConstAttr2f !Vec2
+	| ConstAttr3f !Vec3
+	| ConstAttr4f !Vec4
+	| ConstAttr4i !Int32 !Int32 !Int32 !Int32 -- ^ introduced in ES 3.0
+	| ConstAttr4ui !Word32 !Word32 !Word32 !Word32 -- ^ introduced in ES 3.0
+-- | Vector array
+-- 
+-- [Int] Dimentions of the vector
+data VertexData a =
+	  ByteV Int32 [Int8]
+	| UByteV Int32 [Word8]
+	| ShortV Int32 [Int16]
+	| UShortV Int32 [Word16]
+	| IntV Int32 [Int32]  -- ^ introduced in ES 3.0
+	| UIntV Int32 [Word32]  -- ^ introduced in ES 3.0
+	| HalfFloatV Int32 [Word16]
+	| FloatV Int32 [Float]
+	| FixedV Int32 [Int32]
+	| I2_10_10_10V [Int32]
+	| UI2_10_10_10V [Word32]
+	| BlobSliced VertexData B.ByteString
+	| NoneV -- ^ Do nothing. For early development.
+	deriving (Read, Show)
+
+-- ** Uniform Variable
+
+newtype UniformVar a = UniformVar (!GLint, String) deriving (Read, Show)
+
+-- | bvec[1-4] <- [1-4]{f,i,ui}v?, sampler <- 1iv?
+-- Matrices are /row-major/ by default against OpenGL standard.
+data UniformValue a =
+	  Uniform1f !Float -- :: (UniformVal Float) TODO GADTs
+	| Uniform2f !Vec2
+	| Uniform3f !Vec3
+	| Uniform4f !Vec4
+	| Uniform1fv ![Float]
+	| Uniform2fv ![Vec2]
+	| Uniform3fv ![Vec3]
+	| Uniform4fv ![Vec4]
+	| Uniform1i !Int32
+	| Uniform2i !(Int32, Int32) -- should make sth like IVec2?
+	| Uniform3i !(Int32, Int32, Int32)
+	| Uniform4i !(Int32, Int32, Int32, Int32)
+	| Uniform1iv ![Int32]
+	| Uniform2iv ![(Int32, Int32)]
+	| Uniform3iv ![(Int32, Int32, Int32)]
+	| Uniform4iv ![(Int32, Int32, Int32, Int32)]
+	| UniformMat2 !Mat2
+	| UniformMat3 !Mat3
+	| UniformMat4 !Mat4
+	| UniformMat2v ![Mat2]
+	| UniformMat3v ![Mat3]
+	| UniformMat4v ![Mat4]
+	| UniformTexture !Texture
+	| UniformTextures ![Texture]
+	-- ES 3.0
+	| Uniform1ui !Word32
+	| Uniform2ui !(Word32, Word32)
+	| Uniform3ui !(Word32, Word32, Word32)
+	| Uniform4ui !(Word32, Word32, Word32, Word32)
+	| Uniform1uiv ![Word32]
+	| Uniform2uiv ![(Word32, Word32)]
+	| Uniform3uiv ![(Word32, Word32, Word32)]
+	| Uniform4uiv ![(Word32, Word32, Word32, Word32)]
+	| UniformMat2x3 !(Vec2, Vec2, Vec2) -- not sure these are good
+	| UniformMat3x2 !(Vec3, Vec3) -- [Float]
+	| UniformMat2x4 !(Vec2, Vec2, Vec2, Vec2)
+	| UniformMat4x2 !(Vec4, Vec4)
+	| UniformMat3x4 !(Vec3, Vec3, Vec3, Vec3)
+	| UniformMat4x3 !(Vec4, Vec4, Vec4)
+	| UniformMat2x3v ![(Vec2, Vec2, Vec2)]
+	| UniformMat3x2v ![(Vec3, Vec3)]
+	| UniformMat2x4v ![(Vec2, Vec2, Vec2, Vec2)]
+	| UniformMat4x2v ![(Vec4, Vec4)]
+	| UniformMat3x4v ![(Vec3, Vec3, Vec3, Vec3)]
+	| UniformMat4x3v ![(Vec4, Vec4, Vec4)]
+	deriving (Read, Show)
+
 -- ** Vertex Picker
 
 -- | VFromCounts -> VFromCounts', VIndex8/16/32 -> VIndex(Instanced)',
@@ -212,30 +371,32 @@ mirroredRepeat = WrapMode 0x8370
 --
 -- Version/Ext fallback feature is not yet. (See above)
 data VertexPicker =
-	  VFromCount !Int32 !Word32
-	| VFromCountInstanced !Int32 !Word32 !Word32
-	| VFromCounts ![(Int32, Word32)] -- XXX native array
-	| VFromCounts' !B.ByteString !B.ByteString
+	  TakeFrom
+		!Int32 -- ^ Start Index
+		!Word32 -- ^ A number of vertices to
+	| TakeFromInstanced !Int32 !Word32 !Word32
+	| TakeFromMany ![(Int32, Word32)] -- XXX native array
+	| TakeFromMany' !B.ByteString !B.ByteString
 	-- ^ Wrapping glMultiDrawArraysEXT
-	| VIndex8 ![Word8]
-	| VIndex16 ![Word16]
-	| VIndex32 ![Word32]
-	| VIndex' !BufferRef !GLsizei !GLenum !Int
+	| ByIndex8 ![Word8]
+	| ByIndex16 ![Word16]
+	| ByIndex32 ![Word32]
+	| ByIndex' !BufferRef !GLsizei !GLenum !Int
 	-- ^ Wrapping glDrawElements
-	| VIndexInstanced8 ![Word8] !Int
-	| VIndexInstanced16 ![Word16] !Int
-	| VIndexInstanced32 ![Word32] !Int
-	| VIndexInstanced' !BufferRef !GLsizei !GLenum !Int !GLsizei
+	| ByIndexInstanced8 ![Word8] !Int
+	| ByIndexInstanced16 ![Word16] !Int
+	| ByIndexInstanced32 ![Word32] !Int
+	| ByIndexInstanced' !BufferRef !GLsizei !GLenum !Int !GLsizei
 	-- ^ Wrapping glDrawElementsInstanced
-	| VIndices8 ![[Word8]]
-	| VIndices16 ![[Word16]]
-	| VIndices32 ![[Word32]]
-	| VIndices' !B.ByteString GLenum !B.ByteString
+	| ByIndices8 ![[Word8]]
+	| ByIndices16 ![[Word16]]
+	| ByIndices32 ![[Word32]]
+	| ByIndices' !B.ByteString !GLenum !B.ByteString
 	-- ^ Wrapping glMultiDrawElementsEXT
 	-- .| VFromToIndex8/16/32 !Int !Int ![Word8/16/32]
 	-- .| VFromToIndex' !BufferRef !Int !Int !GLsizei !GLenum !Int
 	-- .^ Wrapping glDrawRangeElements
-	| DrawCallSequence ![VertexPicker]
+	| DrawCallSequence [VertexPicker] -- allow lazy evalution
 	deriving (Read, Show)
 
 -- ** ClearBuffer
@@ -253,7 +414,7 @@ data GLManager = GLManager
 	{ glAPIVersion :: GLESVersion -- ^ set API version to be used
 	, glProgramCache :: IORef [(String, ProgramBinary)]
 	-- ^ get/set after/before program linkage
-	--, glRefHolder :: [ForeignPtr GLuint]
+	, glLogger :: (GLCall, GLFeedback) -> ()
 	} deriving Show
 
 type ProgramBinary = B.ByteString
@@ -275,14 +436,15 @@ setProgramCache cache glm = writeIORef cache (glProgramCache glm)
 type GLIO a = EitherT [String] IO a
 
 loadProgram :: GLManager
-             -> String
+             -> GLName
              -> [Shader]
+             -> Maybe (TransformFeedbackComponent, [GLName])
              -> ([Shader] -> Int -> Maybe ProgramBinary -> IO ())
-             -> GLIO (ProgramRef, [ShaderRef])
+             -> GLIO (ProgramObj, [ShaderObj])
 
 -- ** Draw
 drawData :: DrawCall a -> IO ()
-drawData (DrawCall (Drawmode mode) prog conf uniforms attribs picker) = do
+drawData (DrawCall (DrawMode mode) prog conf uniforms attribs picker) = do
 	-- draw config
 	mapM_ setGraphicState conf
 
@@ -309,7 +471,10 @@ drawData (DrawTexture ref u v tw th x y z w h) = do
 
 -- * Internals
 -- ** Garbage collection on GL Objects
-type GLObject a = ForeignPtr Word32
+
+-- | Objects are sharable among threads using shared_contex.
+type GLObject a = (ForeignPtr Word32, String)
+--data GLFeedback
 -- forceFreeGLObjectsNow :: forall a. [GLObject a] -> IO ()
 
 bindFinalizer :: IO () -> ResourceId -> IO (ForeignPtr ResourceId)
@@ -381,6 +546,62 @@ setGraphicState x = case x of
 	FragmentShaderDerivativeHint hint ->
 		glHint 0x8B8B hint
 
+setUniformVar :: UniformUpdate -> IO ()
+setUniformVar (loc, _, val) = case val of
+	Uniform1f x -> glUniform1f loc x
+	Uniform2f (Vec2 x y) -> glUniform2f loc x y
+	Uniform3f (Vec3 x y z) -> glUniform3f loc x y z
+	Uniform4f (Vec4 x y z w) -> glUniform4f loc x y z w
+	Uniform1fv xs -> withArray xs (glUniform1fv loc (len xs) . castPtr)
+	Uniform2fv xs -> withArray xs (glUniform2fv loc (len xs) . castPtr)
+	Uniform3fv xs -> withArray xs (glUniform3fv loc (len xs) . castPtr)
+	Uniform4fv xs -> withArray xs (glUniform4fv loc (len xs) . castPtr)
+	Uniform1i x -> glUniform1i loc x
+	Uniform2i (x,y) -> glUniform2i loc x y
+	Uniform3i (x,y,z) -> glUniform3i loc x y z
+	Uniform4i (x,y,z,w) -> glUniform4i loc x y z w
+	{-Uniform1iv xs -> withArray xs (glUniform1iv loc (len xs))
+	Uniform2iv xs -> withArray xs (glUniform2iv loc (len xs))
+	Uniform3iv xs -> withArray xs (glUniform3iv loc (len xs))
+	Uniform4iv xs -> withArray xs (glUniform4iv loc (len xs))-}
+	UniformMat2 m -> with m (glUniformMatrix2fv loc 1 1 . castPtr)
+	UniformMat3 m -> with m (glUniformMatrix3fv loc 1 1 . castPtr)
+	UniformMat4 m -> with m (glUniformMatrix4fv loc 1 1 . castPtr)
+	UniformMat2v mx -> withArray mx (glUniformMatrix2fv loc (len mx) 1 . castPtr)
+	UniformMat3v mx -> withArray mx (glUniformMatrix3fv loc (len mx) 1 . castPtr)
+	UniformMat4v mx -> withArray mx (glUniformMatrix4fv loc (len mx) 1 . castPtr)
+	--UniformTexture (Texture' _ tex) -> do
+		--glActiveTexture(0-31)
+		--glBindTexture 2D texRef
+		--glBindSampler ...
+		-- glUniform1i unifid 0-31
+		--glUniform1i loc x
+	--UniformTextures texes -> withArray xs (glUniform1iv loc (len xs))
+	Uniform1ui x -> glUniform1ui loc x
+	Uniform2ui (x,y) -> glUniform2ui loc x y
+	Uniform3ui (x,y,z) -> glUniform3ui loc x y z
+	Uniform4ui (x,y,z,w) -> glUniform4ui loc x y z w
+	{-Uniform1uiv xs -> withArray xs (glUniform1uiv loc (len xs))
+	Uniform2uiv xs -> withArray xs (glUniform2uiv loc (len xs))
+	Uniform3uiv xs -> withArray xs (glUniform3uiv loc (len xs))
+	Uniform4uiv xs -> withArray xs (glUniform4uiv loc (len xs))-}
+	{-- ES 3.0
+	| UniformMat2x3 !(Vec2, Vec2, Vec2)
+	| UniformMat3x2 !(Vec3, Vec3) -- [Float]
+	| UniformMat2x4 !(Vec2, Vec2, Vec2, Vec2)
+	| UniformMat4x2 !(Vec4, Vec4)
+	| UniformMat3x4 !(Vec3, Vec3, Vec3, Vec3)
+	| UniformMat4x3 !(Vec4, Vec4, Vec4)
+	| UniformMat2x3v ![(Vec2, Vec2, Vec2)]
+	| UniformMat3x2v ![(Vec3, Vec3)]
+	| UniformMat2x4v ![(Vec2, Vec2, Vec2, Vec2)]
+	| UniformMat4x2v ![(Vec4, Vec4)]
+	| UniformMat3x4v ![(Vec3, Vec3, Vec3, Vec3)]
+	| UniformMat4x3v ![(Vec4, Vec4, Vec4)]
+	-}
+	where
+		len = fromIntegral . length
+
 invokeDraw :: DrawMode -> VertexPicker -> IO ()
 invokeDraw mode picker = case picker of
 	VFromCount first count -> do
@@ -408,3 +629,12 @@ invokeDraw mode picker = case picker of
 
 
 
+newtype TransformFeedbackComponent = TransformFeedbackComponent GLenum
+	deriving (Read, Show)
+interleavedAttribs = TransformFeedbackComponent 0x8C8C
+separateAttribs = TransformFeedbackComponent 0x8C8D
+
+newtype BufferUsage = BufferUsage GLenum deriving (Read, Show)
+staticDraw = BufferUsage 0x88E4
+dynamicDraw = BufferUsage 0x88E8
+streamDraw = BufferUsage 0x88E0
