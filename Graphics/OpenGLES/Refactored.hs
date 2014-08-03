@@ -27,19 +27,24 @@ import Graphics.OpenGLES.Env
 -- * Core Data Types
 
 type GLName = CString -- eliminate hungry [Char]s. +rewrite rule.
+type GLError = GLenum
 
+type BufferObj = ForeignPtr GLuint
+type ProgramObj = ForeignPtr GLuint
+type ShaderObj = ForeignPtr GLuint
+type TextureObj = ForeignPtr GLuint
 
 data GLCall a where
 	DrawCall
 		:: !DrawMode
-		-> !Program
+		-> !ProgramObj
 		-> ![GraphicState]
-		-> ![UniformUpdate]
-		-> ![VerticesUpdate]
+		-> ![(UniformVar, UniformValue)]
+		-> ![(VertexAttr, VertexBuffer b)]
 		-> !VertexPicker
-		-> GLCall ()
+		-> GLCall GLError
 	DrawTextureExt -- XXX test: may not work with 2.0+ context.
-		:: !TextureRef
+		:: !TextureObj
 		-> !Int32
 		-> !Int32
 		-> !Int32
@@ -49,7 +54,7 @@ data GLCall a where
 		-> !Int32
 		-> !Int32
 		-> !Int32
-		-> GLCall ()
+		-> GLCall GLError
 	-- XXX integrate as buffer operations?
 	ViewPort -- ^ Cliping rendering area. The origin is left-bottom.
 		:: !Int32 -- ^ x
@@ -65,28 +70,28 @@ data GLCall a where
 	-- .| EnsureGPUFinish -- ^ ES 3.0 required. Nonblock
 	-- FenceGPUApple(blockgpuwhiledraw)
 	--waitForGPUCommandsComplete(GL_SYNC_GPU_COMMANDS_COMPLETE)
-	ClearBuffer
-		:: !ClearBufferBits
+	Clear
+		:: !ClearBufferFlags
 		-> GLCall GLError
-	Upload :: BufferObj -> () -> GLCall GLError
 	GetUniform :: ProgramObj -> GLName -> GLCall GLint
 	GetAttrib :: ProgramObj -> GLName -> GLCall GLint
 	GenShader
 		:: Shader
-		-> GLCall (Either [String] ShaderObj)
+		-> GLCall (Either String ShaderObj)
 	GenProgram
 		:: GLName
 		-> [ShaderObj]
 		-> Maybe (TransformFeedbackComponent, [GLName])
-		-> GLCall (Either [String] ProgramObj)
-	-- GenBuffer :: BufferType -> a -> BufferUsage -> GLCall (BufferObj a)
-	-- GenTexture :: GLCall TextureObj
+		-> GLCall (Either String ProgramObj)
+	GenBuffer :: BufferType -> a -> BufferUsage -> GLCall (BufferObj a)
+	Upload :: BufferObj -> () -> GLCall GLError
+	GenTexture :: [B.ByteString] -> GLCall (Either String TextureObj)
 	-- GenFramebuffer :: GLCall FBO
 	-- GenRenderbuffer :: GLCall RBO
 	-- SetFramebuffer in GS?
 	-- BeginQuery 
-	-- EndQuery
-	GenTransformFeedback :: [VBO] -> GLCall TransformFeedback
+	-- EndQuery :: GLCall ()
+	GenTransformFeedback :: [Buffer] -> GLCall TransformFeedback
 	BeginTransformFeedback :: TransformFeedback -> DrawMode -> GLCall ()
 	EndTransformFeedback :: GLCall ()
 	deriving (Read, Show)
@@ -120,6 +125,7 @@ data Shader =
 	| VertexShaderTF String B.ByteString [String]
 	| FragmentShader String B.ByteString
 	| ComputeShader String B.ByteString
+	-- TessellationShader String B.ByteString -- ES3.1+ & GL_EXT_tessellation_shader
 	deriving (Read, Show)
 
 -- ** Graphic States
@@ -254,15 +260,17 @@ mirroredRepeat = WrapMode 0x8370
 
 -- ** Vertex Attribute
 
-data VertexAttr = (!GLint, String, VertexType)
-	deriving (Read, Show)
+type VertexAttr = (!GLint, String, VertexType)
 
 data VertexType =
-	  Vertex GLDimention IsNormalized 
+	  Vertex GLDimention IsNormalized
+	-- ^ For /vec[1234]/, one float vector per vertex. If
+	-- 'IsNormalized' is True, values are clamped to [0,1] ([-1,1] if signed.)
 	| IntVertex GLDimention
+	-- ^ For /ivec[1234]/, Integer variant of Vertex.
 	deriving (Read, Show)
 
-newtype GLDimention = GLDimention GLInt deriving (Read, Show)
+newtype GLDimention = GLDimention GLint deriving (Read, Show)
 gl1 = GLDimention 1
 gl2 = GLDimention 2
 gl3 = GLDimention 3
@@ -272,19 +280,17 @@ gl4 = GLDimention 4
 type IsNormalized = Bool
 
 -- ** Buffer
-data Buffer = 
-	  Vertex VertexData
-	-- ^ for vec[1234] Floating integer data per vertex
-	| NormalizedVertex VertexData
-	-- ^ for vec[1234] Clamp values to [0,1] ([-1,1] if signed)
-	| IntVertex VertexData
-	-- ^ for ivec[1234] Integer variant of Vertex
-	| Instanced !Word32 !VertexAttr
+
+-- | (attribute_index_in_buffer, buffer)
+type VertexBuffer a = (!Int, !Buffer a)
+
+newtype Buffer a =
+	Buffer (!BufferObj, !GLint, ![(!GLenum, !GLint, !GLint, !Word32)], !GLint)
+	deriving (Read, Show)
+	-- (ref, count, [(typ, dim, offset, num_instances)], stride)
+	-- add field_name :: String ?
 	-- ^ Treat as: let vertexList' = concatMap (replicate instanceNum) vertexList
-	| BufferSlice !BufferRef !GLint !GLenum !GLboolean !GLsizei !Int
-	-- ^ Internally used. Wrapping glVertexAttribPointer()
-	| BufferSlicei !BufferRef !GLint !GLenum !GLsizei !Int
-	-- ^ Internally used. Wrapping glVertexAttribIPointer()
+{-
 	| ConstAttr1f !Float
 	| ConstAttr2f !Vec2
 	| ConstAttr3f !Vec3
@@ -292,9 +298,6 @@ data Buffer =
 	| ConstAttr4i !Int32 !Int32 !Int32 !Int32 -- ^ introduced in ES 3.0
 	| ConstAttr4ui !Word32 !Word32 !Word32 !Word32 -- ^ introduced in ES 3.0
 -- | Vector array
--- 
--- [Int] Dimentions of the vector
-data VertexData a =
 	  ByteV Int32 [Int8]
 	| UByteV Int32 [Word8]
 	| ShortV Int32 [Int16]
@@ -307,12 +310,16 @@ data VertexData a =
 	| I2_10_10_10V [Int32]
 	| UI2_10_10_10V [Word32]
 	| BlobSliced VertexData B.ByteString
-	| NoneV -- ^ Do nothing. For early development.
-	deriving (Read, Show)
+	-}
+
+newtype HalfFloat = HalfFloat Word16 deriving (Read, Show)
+newtype FixedFloat = FixedFloat Int32 deriving (Read, Show)
+newtype I2_10_10_10V = I2_10_10_10V Int32 deriving (Read, Show)
+newtype UI2_10_10_10V = UI2_10_10_10V Int32 deriving (Read, Show)
 
 -- ** Uniform Variable
 
-newtype UniformVar a = UniformVar (!GLint, String) deriving (Read, Show)
+type UniformVar a = (!GLint, String)
 
 -- | bvec[1-4] <- [1-4]{f,i,ui}v?, sampler <- 1iv?
 -- Matrices are /row-major/ by default against OpenGL standard.
@@ -381,12 +388,12 @@ data VertexPicker =
 	| ByIndex8 ![Word8]
 	| ByIndex16 ![Word16]
 	| ByIndex32 ![Word32]
-	| ByIndex' !BufferRef !GLsizei !GLenum !Int
+	| ByIndex' !BufferObj !GLsizei !GLenum !Int
 	-- ^ Wrapping glDrawElements
 	| ByIndexInstanced8 ![Word8] !Int
 	| ByIndexInstanced16 ![Word16] !Int
 	| ByIndexInstanced32 ![Word32] !Int
-	| ByIndexInstanced' !BufferRef !GLsizei !GLenum !Int !GLsizei
+	| ByIndexInstanced' !BufferObj !GLsizei !GLenum !Int !GLsizei
 	-- ^ Wrapping glDrawElementsInstanced
 	| ByIndices8 ![[Word8]]
 	| ByIndices16 ![[Word16]]
@@ -401,7 +408,7 @@ data VertexPicker =
 
 -- ** ClearBuffer
 
-newtype ClearBufferFlags = ClearBufferFlag Int32 deriving (BIts, Read, Show)
+newtype ClearBufferFlags = ClearBufferFlag Int32 deriving (Num, Read, Show)
 clearDepth = ClearBufferFlag 0x100
 clearStencil = ClearBufferFlag 0x400
 clearColor = ClearBufferFlag 0x4000
@@ -443,7 +450,7 @@ loadProgram :: GLManager
              -> GLIO (ProgramObj, [ShaderObj])
 
 -- ** Draw
-drawData :: DrawCall a -> IO ()
+drawData :: GLCall a -> IO ()
 drawData (DrawCall (DrawMode mode) prog conf uniforms attribs picker) = do
 	-- draw config
 	mapM_ setGraphicState conf
@@ -460,7 +467,7 @@ drawData (DrawCall (DrawMode mode) prog conf uniforms attribs picker) = do
 	
 	invokeDraw mode picker
 
-drawData (DrawTexture ref u v tw th x y z w h) = do
+drawData (DrawTextureExt ref u v tw th x y z w h) = do
 	-- GL_TEXTURE_2D = 0x0DE1
 	withForeignPtr ref (glBindTexture 0x0DE1 . ptrToId)
 	-- GL_TEXTURE_CROP_RECT_OES = 0x8B9D
@@ -477,7 +484,7 @@ type GLObject a = (ForeignPtr Word32, String)
 --data GLFeedback
 -- forceFreeGLObjectsNow :: forall a. [GLObject a] -> IO ()
 
-bindFinalizer :: IO () -> ResourceId -> IO (ForeignPtr ResourceId)
+bindFinalizer :: IO () -> GLuint -> IO (ForeignPtr GLuint)
 bindFinalizer f i = newForeignPtr (idToPtr i) (putStrLn "Fin" >> f)
 
 idToPtr i = nullPtr `plusPtr` fromIntegral i
@@ -546,8 +553,8 @@ setGraphicState x = case x of
 	FragmentShaderDerivativeHint hint ->
 		glHint 0x8B8B hint
 
-setUniformVar :: UniformUpdate -> IO ()
-setUniformVar (loc, _, val) = case val of
+setUniformVar :: (UniformVar, UniformValue) -> IO ()
+setUniformVar ((loc, _), val) = case val of
 	Uniform1f x -> glUniform1f loc x
 	Uniform2f (Vec2 x y) -> glUniform2f loc x y
 	Uniform3f (Vec3 x y z) -> glUniform3f loc x y z
@@ -603,24 +610,24 @@ setUniformVar (loc, _, val) = case val of
 		len = fromIntegral . length
 
 invokeDraw :: DrawMode -> VertexPicker -> IO ()
-invokeDraw mode picker = case picker of
-	VFromCount first count -> do
+invokeDraw (DrawMode mode) picker = case picker of
+	TakeFrom first count -> do
 		glDrawArrays mode first count
-	VFromCountInstanced first count primcount ->
+	TakeFromInstanced first count primcount ->
 		glDrawArraysInstanced mode first count primcount
-	VFromCounts list ->
+	TakeFromMany list ->
 		forM_ list (\(fst, cnt) -> glDrawArrays mode fst cnt)
-	VFromCounts' firstbs countbs ->
+	TakeFromMany' firstbs countbs ->
 		withBSBS countbs firstbs $ \cptr fptr clen ->
 			glMultiDrawArraysEXT mode fptr cptr (unsafeShiftR clen 2)
-	VIndex' ref count typ offset -> do
+	ByIndex' ref count typ offset -> do
 		-- bind GL_ELEMENT_ARRAY_BUFFER = 0x8893
 		withForeignPtr ref (glBindBuffer 0x8893 . ptrToId)
 		glDrawElements mode count typ (idToPtr offset)
-	VIndexInstanced' ref count typ offset divNum ->
+	ByIndexInstanced' ref count typ offset divNum ->
 		glDrawElementsInstanced mode count typ (idToPtr offset) divNum
 	--VIndices8/16/32 ... ->
-	VIndices' countbs typ indicesbs ->
+	ByIndices' countbs typ indicesbs ->
 		withBSBS countbs indicesbs $ \cptr iptr clen ->
 			glMultiDrawElementsEXT mode cptr typ iptr (unsafeShiftR clen 2)
 	-- VFromToIndex' ...
