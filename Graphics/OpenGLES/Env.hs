@@ -1,4 +1,6 @@
 -- | Retriving implementation depend constant values.
+-- Do not call them before OpenGL initialization.
+-- (glGetString could return null pointer!)
 module Graphics.OpenGLES.Env where
 import Foreign
 import Foreign.C.String
@@ -27,7 +29,7 @@ isS3TCsupported = hasExt "GL_EXT_texture_compression_s3tc"
 
 -- * Integer Parameters
 
-newtype GLParam = GLParam Int32 deriving (Read, Show)
+newtype GLParam = GLParam GLenum deriving (Read, Show)
 -- glGetBooleanv glGetFloatv glGetIntegerv glGetInteger64v
 -- glGetBooleani_v glGetIntegeri_v glGetInteger64i_v
 -- As of 3.1, 188 + ext parameters are querieable.
@@ -266,7 +268,7 @@ numProgramBinaryFormats = GLParam 0x87FE
 
 -- * Ranged Parameters
 
-newtype GLParamR = GLParamR Int32 deriving (Read, Show)
+newtype GLParamR = GLParamR GLenum deriving (Read, Show)
 
 glRange :: GLParamR -> (Float, Float)
 glRange (GLParamR param) = unsafePerformIO $
@@ -274,7 +276,7 @@ glRange (GLParamR param) = unsafePerformIO $
 		let p = castPtr ptr
 		glGetFloatv param p
 		r1 <- peek p
-		r2 <- peekByteOff 4 p
+		r2 <- peekByteOff p 4
 		return (r1, r2)
 
 -- | The (smallest, largest) supported sizes for points.

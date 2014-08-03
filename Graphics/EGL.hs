@@ -3,17 +3,15 @@
 {-# LANGUAGE Unsafe, UnliftedFFITypes, MagicHash, UnboxedTuples #-}
 #endif
 -- | EGL 1.4 standard
+-- 
 -- <http://www.khronos.org/registry/egl/>
+-- 
 -- <http://www.khronos.org/files/egl-1-4-quick-reference-card.pdf>
 module Graphics.EGL where
 import Control.Applicative
 import Data.IORef
-import Data.Marshal
+import Foreign
 import Foreign.C.String
-import Foreign.Marshal.Alloc (alloca)
-import Foreign.Marshal.Array
-import Foreign.Ptr
-import Foreign.Storable
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce
 #if __GLASGOW_HASKELL__
@@ -123,6 +121,7 @@ data EGLConfAttr =
   | EGLMatchNativePixmap -- ^ EGLint Pseudo-attribute (not queryable)
   | EGLConformant --EGLint
 
+-- XXX deprecated instance
 instance Enum EGLConfAttr where
   fromEnum x = case x of
     EGLBufferSize -> 0x3020
