@@ -31,7 +31,10 @@ main = do
 	Right call <- compileCall glm quad
 	let cxt = Context win rand call startedAt 0
 	mainloop cxt
-	
+	info <- sequence [getGLVendor, getGLRenderer, getGLVersion, getGLShadingLanguageVersion]
+	putStrLn . show $ info
+	exts <- getGLExtensions
+	putStrLn . show $ exts
 	GLFW.destroyWindow win
 	GLFW.terminate
 

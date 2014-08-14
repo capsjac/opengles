@@ -16,6 +16,8 @@ glExtensions = unsafePerformIO $
 {-# NOINLINE hasExt #-}
 hasExt :: String -> Bool
 hasExt ext = ext `elem` glExtensions
+--hasExt :: CString -> Bool
+--glGetString 0x1F03 >>= indexOf ext /= -1
 
 glVendor, glRenderer, glVersion, glShadingLanguageVersion :: String
 glVendor = unsafePerformIO $ glGetString 0x1F00 >>= peekCString
@@ -268,10 +270,10 @@ numProgramBinaryFormats = GLParam 0x87FE
 
 -- * Ranged Parameters
 
-newtype GLParamR = GLParamR GLenum deriving (Read, Show)
+newtype GLParamP = GLParamP GLenum deriving (Read, Show)
 
-glRange :: GLParamR -> (Float, Float)
-glRange (GLParamR param) = unsafePerformIO $
+glPair :: GLParamP -> (Float, Float)
+glPair (GLParamP param) = unsafePerformIO $
 	with (0 :: Double) $ \ptr -> do
 		let p = castPtr ptr
 		glGetFloatv param p
@@ -281,11 +283,11 @@ glRange (GLParamR param) = unsafePerformIO $
 
 -- | The (smallest, largest) supported sizes for points.
 -- The smallest size must be <= 1, and the largest size must be >= 1.
-aliasedPointSizeRange = GLParamR 0x846D
+aliasedPointSizeRange = GLParamP 0x846D
 -- | The range of widths supported for aliased lines.
-aliasedLineWidthRange = GLParamR 0x846E
+aliasedLineWidthRange = GLParamP 0x846E
 -- | The maximum supported width and height of the viewport.
 -- These must be at least as large as the visible dimensions of the display
 -- being rendered to.
-maxViewportDims = GLParamR 0x0D3A
+maxViewportDims = GLParamP 0x0D3A
 

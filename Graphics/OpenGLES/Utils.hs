@@ -5,6 +5,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 import Data.Vect
 --import Data.Word (Word8)
+import Foreign.C.String
 --import GHC.ST (runST, ST)
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Core (Program(..), Shader(..))
@@ -149,13 +150,13 @@ clearBuffer :: Bool -- ^ Clear color buffer
             -> IO ()
 clearBuffer c d s = glClear $ (if d then 0x100 else 0)
   .|. (if s then 0x400 else 0) .|. (if c then 0x4000 else 0)
-
+-}
 getGLVendor = glGetString 0x1F00 >>= peekCString
 getGLRenderer = glGetString 0x1F01 >>= peekCString
 getGLVersion = glGetString 0x1F02 >>= peekCString
-getGLExtensions = words <$> (glGetString 0x1F03 >>= peekCString)
+getGLExtensions =  (glGetString 0x1F03 >>= peekCString)
 getGLShadingLanguageVersion = glGetString 0x8B8C >>= peekCString
--}
+
 
 viewport :: (Integral a, Integral b) => a -> a -> b -> b -> IO ()
 viewport x y w h = glViewport (fromIntegral x) (fromIntegral y)
@@ -199,3 +200,5 @@ blockGPUWhileDraw = do
 
 --unsafeDrawData :: DrawCall -> IO ()
 --unsafeDrawData dc = compileCall >>= drawData
+
+-- AABB from model

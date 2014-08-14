@@ -60,7 +60,7 @@ data DrawCall =
 	| DrawCall
 		!DrawMode !Program ![GraphicState]
 		![UniformVar] ![(AttrId, VertexAttr)] !VertexPicker
-	| DrawTexture !TextureRef !Int !Int !Int !Int !Int !Int !Int !Int !Int -- add DrawConfig?
+	| DrawTexture !TextureRef !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 !Int32 -- add DrawConfig?
 	| SetGraphicState [GraphicState]
 	-- .|WaitForFinishTimeout Bool Int64
 	-- .^ ES 3.0 required. set GL_SYNC_FLUSH_COMMANDS_BIT or not, timeout in nanoseconds
@@ -137,8 +137,8 @@ data GraphicState =
 	| BlendEquation BlendOp -- ^ mode
 	| BlendEquationSeparate BlendOp BlendOp -- ^ modeRGB, modeAlpha
 	| BlendFunc BlendingFactor BlendingFactor -- ^ src, dest
-	| BlendFuncSeparate BlendingFactor BlendingFactor
-	                    BlendingFactor BlendingFactor
+	| BlendFuncSeparate !BlendingFactor BlendingFactor
+	                    !BlendingFactor !BlendingFactor
 	-- ^ srcRGB, dstRGB, srcAlpha, dstAlpha
 	| BlendColor Float Float Float Float
 	-- ^ red, green, blue and alpha value range [0,1]
@@ -315,26 +315,76 @@ deriving instance Eq Mat4
 
 -- ** Texture
 
+-- mipmaps, compressed, fallbacks
+-- [comptex, fallback]
+-- glm basepath = /data/app.name/assets/...
+-- glm preffered compression type (filename suffiex)
+---- iOS: PVRTC
+---- Android with Alpha: PVRTC+ATITC+S3TC+Uncompressed
+---- Android without Alpha: ETC1
+---- PC: S3TC + Uncompressed
+--glm detect compression support
+--glm detect max filter support
+-- record Gen/Del/Draw* calls and responces
+-- prefferedformat == "etc1" like.
+-- texture from file "name" [path..] genMipmap?flag
+-- feedback record, framebuffer management with glViewport?
+-- Viewport....,BindFramebuffer,BindEGLContext,UnbindEGL
+--Utils.hs shrinked triangles, 
+--  Update[Sub]Texture,UpdateVertex(Buffer)
+-- "texname" [tex1,tex2,...] auto select
+-- auto alignment of texture data
+-- texture atlas managment
 data Texture =
-	  Texture
+	  RawTexture String GLenum GLint GLint GLsizei GLsizei GLenum GLenum
+  	-- ^ name, target, level, internalFormat, width, height, format, type
+	| TextureFile
+		{ texName :: String
+		, texSampler :: Sampler
+		, texUnit :: Int
+		, texBlob :: B.ByteString
+		, texGenMipmap :: Bool
+		}
+	| TextureFile'
+		{ texName :: String
+		, texFile :: B.ByteString
+		, texName2 :: String
+		, texFile2 :: B.ByteString
+		, texSampler :: Sampler
+		, texUnit :: Int
+		, texGenMipmap :: Bool
+		}
+	| Texture
 		{ texName :: String
 		, texTarget :: TextureTarget
-		, texColorFormat :: TextureColorFormat
-		, texBitLayout :: TextureBitLayout
+		, texLevel :: Int
 		, texInternalFormat :: TextureInternalFormat
-		, texSampler :: Sampler
 		, texWidth :: Int
 		, texHeight :: Int
-		, texBorder :: Int
-		, texLevel :: Int -- [Int]?
-		-- texUnit :: Maybe Int 0..31
+		, texBitLayout :: TextureBitLayout
+		, texSampler :: Sampler
+		, texUnit :: Int -- Maybe Int 0..31
+		, texData :: [(Int, B.ByteString)]
+		, texGenMipmap :: Bool
+		}
+	| Compressed
+		{ texName :: String
+		, texTarget :: TextureTarget
+		, texLevel :: Int
+		--, texFormat :: CompressionMethod
+		, texWidth :: Int
+		, texHeight :: Int
+		, texSampler :: Sampler
+		, texUnit :: Int -- Maybe Int 0..31
+		, texData :: [(Int, B.ByteString)]
+		, texGenMipmap :: Bool
 		}
 	| Texture'
-		{ -- add width,height,... good for debug?
+		{
 		  texName :: String
 		, texSampler :: Sampler
 		, texRef :: TextureRef
-		-- texUnit :: Int
+		, texUnit :: Int
 		}
 	deriving (Show, Eq)
 
@@ -370,11 +420,11 @@ data TextureInternalFormat = Alpha | Rgb | Rgba | Luminance | LuminanceAlpha
 	deriving (Show, Eq)
 
 data TextureData =
-	  RawTexture
+	  PlainTexture
 	| PVRTC -- PowerVR SGX(iOS), Samsung S5PC110(Galaxy S/Tab)
 	| ATITC -- ATI Imageon, Qualcomm Adreno
 	| S3TC -- NVIDIA Tegra2, ZiiLabs ZMS-08 HD
-	| ETC1 -- Android, ARM Mali
+	| ETC -- Android, ARM Mali
 	-- .| _3Dc -- ATI, NVidia
 	-- .| Palette
 
@@ -390,6 +440,9 @@ data Sampler = Sampler2D
 	-- .| SamplerES3
 	deriving (Show, Eq)
 
+data Filter = StdFilter MagFilter MinFilter
+	| MaxFilter Int MagFilter MinFilter -- ^ anisotropic filter with fallback
+	deriving (Show, Eq)
 data MagFilter = MagNearest | MagLinear
 	deriving (Show, Eq)
 
@@ -398,9 +451,9 @@ data MinFilter = MinNearest | MinLinear
 	| LinearMipmapNearest | LinearMipmapLinear
 	deriving (Show, Eq)
 
+-- TODO: NPOT ClampToEdge check / has ext?
 data WrapMode = Repeat | ClampToEdge | MirroredRepeat
 	deriving (Show, Eq)
-
 
 -- ** Vertex Picker
 
@@ -511,7 +564,7 @@ compileCall glm@(GLManager version cache)
 
 	return d
 
-compileCall :: GLManager -> DrawCall -> IO DrawCall
+compileCall' :: GLManager -> DrawCall -> IO DrawCall
 compileCall' glm dc = compileCall glm dc >>= \x -> case x of
 	Left errors -> error (show errors)
 	Right dc -> return dc
@@ -535,12 +588,6 @@ drawData (DrawCall mode prog conf uniforms attribs picker) = do
 	
 	-- uniform variable
 	mapM_ setUniformVar uniforms
-	
-	-- texture
-	-- glActiveTexture(0-31)
-	-- glBindTexture 2D texRef
-	-- glBindSampler ...
-	-- glUniform1i unifid 0-31
 	
 	invokeDraw mode picker
 
@@ -939,8 +986,8 @@ setGraphicState x = case x of
 		glBlendFuncSeparate (marshal srgb) (marshal drgb)
 			(marshal salpha) (marshal dalpha)
 	BlendColor r g b a -> glBlendColor r g b a
-	GenerateMipmapHint hint -> glHint 0x8192 (marshal hint)
-	FragmentShaderDerivativeHint hint -> glHint 0x8B8B (marshal hint)
+	--GenerateMipmapHint hint -> glHint 0x8192 (marshal hint)
+	--FragmentShaderDerivativeHint hint -> glHint 0x8B8B (marshal hint)
 
 setVertexAttr :: (AttrId, VertexAttr) -> IO ()
 setVertexAttr (loc, va) = case va of
@@ -995,8 +1042,13 @@ setUniformVar (UniformVar _ val loc) =
 		UniformMat2v mx -> withArray mx (glUniformMatrix2fv loc (len mx) 1 . castPtr)
 		UniformMat3v mx -> withArray mx (glUniformMatrix3fv loc (len mx) 1 . castPtr)
 		UniformMat4v mx -> withArray mx (glUniformMatrix4fv loc (len mx) 1 . castPtr)
-		--UniformTexture x -> glUniform1i loc x
-		--UniformTextures xs -> withArray xs (glUniform1iv loc (len xs))
+		--UniformTexture (Texture' _ tex) -> do
+			--glActiveTexture(0-31)
+			--glBindTexture 2D texRef
+			--glBindSampler ...
+			-- glUniform1i unifid 0-31
+			--glUniform1i loc x
+		--UniformTextures texes -> withArray xs (glUniform1iv loc (len xs))
 		Uniform1ui x -> glUniform1ui loc x
 		Uniform2ui (x,y) -> glUniform2ui loc x y
 		Uniform3ui (x,y,z) -> glUniform3ui loc x y z

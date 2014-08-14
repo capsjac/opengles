@@ -6,8 +6,8 @@ description:         A simplified OpenGL ES core wrapper library.
                      also works in OpenGL 4.1/4.3+ environment.
 license:             PublicDomain
 license-file:        LICENSE
-author:              undefined
-maintainer:          undefined
+author:              capsjac@gmail.com
+maintainer:          capsjac@gmail.com
 -- copyright:           
 category:            Graphics
 build-type:          Simple

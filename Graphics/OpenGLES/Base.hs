@@ -277,7 +277,7 @@ module Graphics.OpenGLES.Base (
 import Foreign
 import Foreign.C.String
 import Graphics.EGL (eglGetProcAddress)
-
+--XXX unify Wrappers by args
 -- * Basic Types
 -- ** OpenGL ES 2.0
 

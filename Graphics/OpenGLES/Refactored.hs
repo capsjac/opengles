@@ -1,8 +1,9 @@
-{-# LANGUAGE CPP, GADTs #-}
+{-# LANGUAGE CPP, GADTs, Rank2Types #-}
 -- | Read the OpenGL ES man pages for detail.
 -- <http://www.khronos.org/opengles/sdk/docs/man31/>
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
 module Graphics.OpenGLES.Refactored where
+-- export Data.Int, Data.Word
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as B
@@ -39,7 +40,7 @@ data GLCall a where
 		:: !DrawMode
 		-> !ProgramObj
 		-> ![GraphicState]
-		-> ![(UniformVar, UniformValue)]
+		-> ![forall a. (UniformVar a, UniformValue a)]
 		-> ![(VertexAttr, VertexBuffer b)]
 		-> !VertexPicker
 		-> GLCall GLError
@@ -73,8 +74,8 @@ data GLCall a where
 	Clear
 		:: !ClearBufferFlags
 		-> GLCall GLError
-	GetUniform :: ProgramObj -> GLName -> GLCall GLint
-	GetAttrib :: ProgramObj -> GLName -> GLCall GLint
+	GetUniform :: ProgramObj -> GLName -> GLCall UniformVar
+	GetAttrib :: ProgramObj -> GLName -> GLCall VertexAttr
 	GenShader
 		:: Shader
 		-> GLCall (Either String ShaderObj)
@@ -83,13 +84,14 @@ data GLCall a where
 		-> [ShaderObj]
 		-> Maybe (TransformFeedbackComponent, [GLName])
 		-> GLCall (Either String ProgramObj)
-	GenBuffer :: BufferType -> a -> BufferUsage -> GLCall (BufferObj a)
-	Upload :: BufferObj -> () -> GLCall GLError
+	GenBuffer :: BufferType -> BufferUsage -> GLCall (BufferObj a)
+	Upload :: BufferObj a -> a -> GLCall GLError
 	GenTexture :: [B.ByteString] -> GLCall (Either String TextureObj)
 	-- GenFramebuffer :: GLCall FBO
-	-- GenRenderbuffer :: GLCall RBO
-	-- SetFramebuffer in GS?
-	-- BeginQuery 
+	-- ModFramebuffer :: GLCall GLError
+	-- GenRenderbuffer :: RenderbufferUsage -> GLCall RBO
+	-- SetFramebuffer in GraphicState?
+	-- BeginQuery :: QueryType -> GLCall GLError
 	-- EndQuery :: GLCall ()
 	GenTransformFeedback :: [Buffer] -> GLCall TransformFeedback
 	BeginTransformFeedback :: TransformFeedback -> DrawMode -> GLCall ()
@@ -122,7 +124,7 @@ asTriangleFan = DrawMode 6
 -- On using TransformFeedbacks, ...
 data Shader =
 	  VertexShader String B.ByteString
-	| VertexShaderTF String B.ByteString [String]
+	-- | VertexShaderTF String B.ByteString [String]
 	| FragmentShader String B.ByteString
 	| ComputeShader String B.ByteString
 	-- TessellationShader String B.ByteString -- ES3.1+ & GL_EXT_tessellation_shader
@@ -260,7 +262,7 @@ mirroredRepeat = WrapMode 0x8370
 
 -- ** Vertex Attribute
 
-type VertexAttr = (!GLint, String, VertexType)
+type VertexAttr a = (!GLint, String, VertexType)
 
 data VertexType =
 	  Vertex GLDimention IsNormalized
@@ -323,52 +325,53 @@ type UniformVar a = (!GLint, String)
 
 -- | bvec[1-4] <- [1-4]{f,i,ui}v?, sampler <- 1iv?
 -- Matrices are /row-major/ by default against OpenGL standard.
-data UniformValue a =
-	  Uniform1f !Float -- :: (UniformVal Float) TODO GADTs
-	| Uniform2f !Vec2
-	| Uniform3f !Vec3
-	| Uniform4f !Vec4
-	| Uniform1fv ![Float]
-	| Uniform2fv ![Vec2]
-	| Uniform3fv ![Vec3]
-	| Uniform4fv ![Vec4]
-	| Uniform1i !Int32
-	| Uniform2i !(Int32, Int32) -- should make sth like IVec2?
-	| Uniform3i !(Int32, Int32, Int32)
-	| Uniform4i !(Int32, Int32, Int32, Int32)
-	| Uniform1iv ![Int32]
-	| Uniform2iv ![(Int32, Int32)]
-	| Uniform3iv ![(Int32, Int32, Int32)]
-	| Uniform4iv ![(Int32, Int32, Int32, Int32)]
-	| UniformMat2 !Mat2
-	| UniformMat3 !Mat3
-	| UniformMat4 !Mat4
-	| UniformMat2v ![Mat2]
-	| UniformMat3v ![Mat3]
-	| UniformMat4v ![Mat4]
-	| UniformTexture !Texture
-	| UniformTextures ![Texture]
+data UniformValue a where
+	  Uniform1f :: !Float -> UniformValue Float
+	| Uniform2f :: !Vec2 -> UniformValue Vec2
+	| Uniform3f :: !Vec3 -> UniformValue Vec3
+	| Uniform4f :: !Vec4 -> UniformValue Vec4
+	| Uniform1fv :: ![Float] -> UniformValue [Float]
+	| Uniform2fv :: ![Vec2] -> UniformValue [Vec2]
+	| Uniform3fv :: ![Vec3] -> UniformValue [Vec3]
+	| Uniform4fv :: ![Vec4] -> UniformValue [Vec4]
+	| Uniform1i :: !Int32 -> UniformValue Int32
+	| Uniform2i :: !(Int32, Int32) -> UniformValue (Int32, Int32)
+	 -- should make sth like IVec2?
+	| Uniform3i :: !(Int32, Int32, Int32) -> UniformValue (Int32, Int32, Int32)
+	| Uniform4i :: !(Int32, Int32, Int32, Int32) -> UniformValue (Int32, Int32, Int32, Int32)
+	| Uniform1iv :: ![Int32] -> UniformValue [Int32]
+	| Uniform2iv :: ![(Int32, Int32)] -> UniformValue [(Int32, Int32)]
+	| Uniform3iv :: ![(Int32, Int32, Int32)] -> UniformValue [(Int32, Int32, Int32)]
+	| Uniform4iv :: ![(Int32, Int32, Int32, Int32)] -> UniformValue [(Int32, Int32, Int32, Int32)]
+	| UniformMat2 :: !Mat2 -> UniformValue Mat2
+	| UniformMat3 :: !Mat3 -> UniformValue Mat3
+	| UniformMat4 :: !Mat4 -> UniformValue Mat4
+	| UniformMat2v :: ![Mat2] -> UniformValue [Mat2]
+	| UniformMat3v :: ![Mat3] -> UniformValue [Mat3]
+	| UniformMat4v :: ![Mat4] -> UniformValue [Mat4]
+	| UniformTexture :: !Texture -> UniformValue Texture
+	| UniformTextures :: ![Texture] -> UniformValue [Texture]
 	-- ES 3.0
-	| Uniform1ui !Word32
-	| Uniform2ui !(Word32, Word32)
-	| Uniform3ui !(Word32, Word32, Word32)
-	| Uniform4ui !(Word32, Word32, Word32, Word32)
-	| Uniform1uiv ![Word32]
-	| Uniform2uiv ![(Word32, Word32)]
-	| Uniform3uiv ![(Word32, Word32, Word32)]
-	| Uniform4uiv ![(Word32, Word32, Word32, Word32)]
-	| UniformMat2x3 !(Vec2, Vec2, Vec2) -- not sure these are good
-	| UniformMat3x2 !(Vec3, Vec3) -- [Float]
-	| UniformMat2x4 !(Vec2, Vec2, Vec2, Vec2)
-	| UniformMat4x2 !(Vec4, Vec4)
-	| UniformMat3x4 !(Vec3, Vec3, Vec3, Vec3)
-	| UniformMat4x3 !(Vec4, Vec4, Vec4)
-	| UniformMat2x3v ![(Vec2, Vec2, Vec2)]
-	| UniformMat3x2v ![(Vec3, Vec3)]
-	| UniformMat2x4v ![(Vec2, Vec2, Vec2, Vec2)]
-	| UniformMat4x2v ![(Vec4, Vec4)]
-	| UniformMat3x4v ![(Vec3, Vec3, Vec3, Vec3)]
-	| UniformMat4x3v ![(Vec4, Vec4, Vec4)]
+	| Uniform1ui :: !Word32 -> UniformValue Word32
+	| Uniform2ui :: !(Word32, Word32) -> UniformValue (Word32, Word32)
+	| Uniform3ui :: !(Word32, Word32, Word32) -> UniformValue (Word32, Word32, Word32)
+	| Uniform4ui :: !(Word32, Word32, Word32, Word32) -> UniformValue (Word32, Word32, Word32, Word32)
+	| Uniform1uiv :: ![Word32] -> UniformValue [Word32]
+	| Uniform2uiv :: ![(Word32, Word32)] -> UniformValue [(Word32, Word32)]
+	| Uniform3uiv :: ![(Word32, Word32, Word32)] -> UniformValue [(Word32, Word32, Word32)]
+	| Uniform4uiv :: ![(Word32, Word32, Word32, Word32)] -> UniformValue [(Word32, Word32, Word32, Word32)]
+	| UniformMat2x3 :: !(Vec2, Vec2, Vec2)  -> UniformValue (Vec2, Vec2, Vec2) -- not sure these are good
+	| UniformMat3x2 :: !(Vec3, Vec3)  -> UniformValue (Vec3, Vec3) -- [Float]
+	| UniformMat2x4 :: !(Vec2, Vec2, Vec2, Vec2) -> UniformValue (Vec2, Vec2, Vec2, Vec2)
+	| UniformMat4x2 :: !(Vec4, Vec4) -> UniformValue (Vec4, Vec4)
+	| UniformMat3x4 :: !(Vec3, Vec3, Vec3, Vec3) -> UniformValue (Vec3, Vec3, Vec3, Vec3)
+	| UniformMat4x3 :: !(Vec4, Vec4, Vec4) -> UniformValue (Vec4, Vec4, Vec4)
+	| UniformMat2x3v :: ![(Vec2, Vec2, Vec2)] -> UniformValue [(Vec2, Vec2, Vec2)]
+	| UniformMat3x2v :: ![(Vec3, Vec3)] -> UniformValue [(Vec3, Vec3)]
+	| UniformMat2x4v :: ![(Vec2, Vec2, Vec2, Vec2)] -> UniformValue [(Vec2, Vec2, Vec2, Vec2)]
+	| UniformMat4x2v :: ![(Vec4, Vec4)] -> UniformValue [(Vec4, Vec4)]
+	| UniformMat3x4v :: ![(Vec3, Vec3, Vec3, Vec3)] -> UniformValue [(Vec3, Vec3, Vec3, Vec3)]
+	| UniformMat4x3v :: ![(Vec4, Vec4, Vec4)] -> UniformValue [(Vec4, Vec4, Vec4)]
 	deriving (Read, Show)
 
 -- ** Vertex Picker
@@ -418,27 +421,40 @@ clearColor = ClearBufferFlag 0x4000
 -- ** Initialization
 
 data GLManager = GLManager
-	{ glAPIVersion :: GLESVersion -- ^ set API version to be used
+	{ glAPIVersion :: Int -- ^ set API version to be used
+	, glLogger :: (GLCall a, GLFeedback a) -> IO ()
 	, glProgramCache :: IORef [(String, ProgramBinary)]
 	-- ^ get/set after/before program linkage
-	, glLogger :: (GLCall, GLFeedback) -> ()
 	} deriving Show
 
 type ProgramBinary = B.ByteString
-instance Show (IORef a) where show = const "(IORef ..)"
-
-data GLESVersion = ES2 | ES3 | ES3_1 deriving Show
+instance Show (IORef [(String, ProgramBinary)]]) where
+	show = const "(IORef [(String, ProgramBinary)])"
 
 initGLManager :: IO GLManager
-initGLManager = newIORef [] >>= return . GLManager ver
+initGLManager = newIORef [] >>= return . GLManager ver (return ()) 
 	where ver = case (glEnv majorVersion, glEnv minorVersion) of
-		(3, 1) -> ES3_1
-		(3, 0) -> ES3
-		(0, 0) -> ES2
-		version -> error $ "initGLManager: unknown version " ++ show version
+		(0, 0) -> 20
+		(major, minor) -> major * 10 + minor
 
 setProgramCache :: [(String, ProgramBinary)] -> GLManager -> IO ()
 setProgramCache cache glm = writeIORef cache (glProgramCache glm)
+
+-- ** Run GLCalls
+data GLFeedback
+postGLCall :: GLCall a -> IO (IORef (Maybe (GLFeedback a))
+
+withGLCall :: GLCall a -> @GLThread@ (GLFeedback a -> IO ()) -> IO ()
+
+runGLCall' :: GLCall a -> IO ()
+
+runGLCall :: GLCall a -> IO (GLFeedback a)
+
+get :: GLFeedback a -> IO a
+get () = .
+
+altRes :: GLFeedback a -> a -> IO a
+
 
 type GLIO a = EitherT [String] IO a
 
@@ -481,9 +497,14 @@ drawData (DrawTextureExt ref u v tw th x y z w h) = do
 
 -- | Objects are sharable among threads using shared_contex.
 type GLObject a = (ForeignPtr Word32, String)
---data GLFeedback
+data GLFeedback a where
+	GLError' :: GLError -> GLFeedback GLError
+	TransformFeedback' :: TransformFeedback -> GLFeedback TransformFeedback
+	GetUnifrom' :: GLint -> GLFeedback GLint
+	GetAttrib' :: GLint -> GLFeedback GLint
+	deriving (Read, Show)
 -- forceFreeGLObjectsNow :: forall a. [GLObject a] -> IO ()
-
+data TransformFeedback = TransformFeedback deriving (Read, Show) -- XXX
 bindFinalizer :: IO () -> GLuint -> IO (ForeignPtr GLuint)
 bindFinalizer f i = newForeignPtr (idToPtr i) (putStrLn "Fin" >> f)
 
@@ -609,6 +630,33 @@ setUniformVar ((loc, _), val) = case val of
 	where
 		len = fromIntegral . length
 
+setVertexAttr :: (VertexAttr, VertexBuffer a) -> IO ()
+setVertexAttr (loc, va) = case va of
+	Vertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+	IntVertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+{-}	NormalizedVertex _ va -> error "setVertexAttr: VertexAttr must be compiled!"
+	Instanced divNum va -> do
+		setVertexAttr (loc, va)
+		glVertexAttribDivisor divNum loc
+	BufferSlice _ ref size typ normalize stride offset -> do
+		withForeignPtr ref (glBindBuffer 0x8892 . ptrToId)
+		glVertexAttribPointer loc size typ normalize stride (idToPtr offset)
+		showError "glVertexAttribPointer"
+		glEnableVertexAttribArray loc
+		showError "glEnableVertexAttribArray"
+	BufferSlicei _ ref size typ stride offset -> do
+		withForeignPtr ref (glBindBuffer 0x8892 . ptrToId)
+		glVertexAttribIPointer loc size typ stride (idToPtr offset)
+		glEnableVertexAttribArray loc
+	ConstAttr1f _ x -> d >> glVertexAttrib1f loc x
+	ConstAttr2f _ (Vec2 x y) -> d >> glVertexAttrib2f loc x y
+	ConstAttr3f _ (Vec3 x y z) -> d >> glVertexAttrib3f loc x y z
+	ConstAttr4f _ (Vec4 x y z w) -> d >> glVertexAttrib4f loc x y z w
+	ConstAttr4i _ x y z w -> d >> glVertexAttribI4i loc x y z w
+	ConstAttr4ui _ x y z w -> d >> glVertexAttribI4ui loc x y z w
+	where
+		d = glDisableVertexAttribArray loc-}
+
 invokeDraw :: DrawMode -> VertexPicker -> IO ()
 invokeDraw (DrawMode mode) picker = case picker of
 	TakeFrom first count -> do
@@ -617,9 +665,9 @@ invokeDraw (DrawMode mode) picker = case picker of
 		glDrawArraysInstanced mode first count primcount
 	TakeFromMany list ->
 		forM_ list (\(fst, cnt) -> glDrawArrays mode fst cnt)
-	TakeFromMany' firstbs countbs ->
-		withBSBS countbs firstbs $ \cptr fptr clen ->
-			glMultiDrawArraysEXT mode fptr cptr (unsafeShiftR clen 2)
+	--TakeFromMany' firstbs countbs ->
+	--	withBSBS countbs firstbs $ \cptr fptr clen ->
+	--		glMultiDrawArraysEXT mode fptr cptr (unsafeShiftR clen 2)
 	ByIndex' ref count typ offset -> do
 		-- bind GL_ELEMENT_ARRAY_BUFFER = 0x8893
 		withForeignPtr ref (glBindBuffer 0x8893 . ptrToId)
@@ -627,9 +675,9 @@ invokeDraw (DrawMode mode) picker = case picker of
 	ByIndexInstanced' ref count typ offset divNum ->
 		glDrawElementsInstanced mode count typ (idToPtr offset) divNum
 	--VIndices8/16/32 ... ->
-	ByIndices' countbs typ indicesbs ->
-		withBSBS countbs indicesbs $ \cptr iptr clen ->
-			glMultiDrawElementsEXT mode cptr typ iptr (unsafeShiftR clen 2)
+	--ByIndices' countbs typ indicesbs ->
+	--	withBSBS countbs indicesbs $ \cptr iptr clen ->
+	--		glMultiDrawElementsEXT mode cptr typ iptr (unsafeShiftR clen 2)
 	-- VFromToIndex' ...
 	DrawCallSequence xs -> mapM_ (invokeDraw mode) xs
 	_ -> error $ "invokeDraw: VertexPicker (" ++ show picker ++ ") must be compiled."
