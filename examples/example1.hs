@@ -64,14 +64,13 @@ awesomeObject =
 		(Program "test"
 			[ VertexShader "test.vs" vertexShader2
 			, FragmentShader "test.fs" fragmentShader2 ])
-		(DrawConfig True True False False)
+		[]--(DrawConfig True True False False)
 		[ UniformVar "scaleRot" $ UniformMat2 (structMat2 [1,0,0,1])
 		, UniformVar "offset" $ Uniform2f (Vec2 0 0)
 		]
 		[ Vertex "pos" (FloatV 2 [-0.7,-0.7,0.7,-0.7,-0.7,0.7,0.7,0.7])
 		, NormalizedVertex "color" (UByteV 3 [0,255,0, 0,0,255, 255,0,0, 0,255,255])
 		]
-		[]
 		(VFromCount 0 4)
 
 vertexShader2 = BS.pack $

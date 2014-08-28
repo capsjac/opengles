@@ -68,7 +68,7 @@ quad customShader = DrawUnit
 	(Program "glsl-sandbox"
 		[ VertexShader "pure" vertexShader
 		, FragmentShader "custom-fragment-shader" customShader ])
-	(DrawConfig True True False False)
+	[]--(DrawConfig True True False False)
 	[ UniformVar "time" (Uniform1f 0)
 	, UniformVar "mouse" (Uniform2f (Vec2 0 0))
 	, UniformVar "resolution" (Uniform2f (Vec2 0 0))
@@ -76,7 +76,7 @@ quad customShader = DrawUnit
 	, UniformVar "surfaceSize" (Uniform2f (Vec2 0 0))
 	]
 	[ Vertex "pos" (FloatV 2 quadPos) ]
-	[]
+	--[]
 	(VFromCount 0 4)
 
 replaceUniforms old [] = old
@@ -129,10 +129,10 @@ draw (Context win call startedAt _ w h) = do
 	putStrLn $ show time
 	let t = realToFrac $ diffUTCTime time startedAt
 	-- modify call here
-	let DrawCall m b c p e f g = call
+	let DrawCall m b c p e g = call
 	(x, y) <- GLFW.getCursorPos win
 	let unif = params p t (Vec2 (re x/float w) (re y/float h)) (Vec2 (float w) (float h))
-	drawData $ DrawCall m b c unif e f g
+	drawData $ DrawCall m b c unif e g
 
 float :: Int -> Float
 float = fromIntegral

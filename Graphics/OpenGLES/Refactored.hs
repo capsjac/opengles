@@ -27,6 +27,7 @@ import Graphics.OpenGLES.Env
 
 -- * Core Data Types
 
+-- | Efficient representation of a name for program, shader, and variable. TODO:rewrite rules.
 type GLName = CString -- eliminate hungry [Char]s. +rewrite rule.
 type GLError = GLenum
 
