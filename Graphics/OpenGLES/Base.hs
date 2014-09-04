@@ -309,7 +309,7 @@ type GLuint = Word32
 type GLfixed = Int32
 
 -- | 32bit non-negative binary integer size
-type GLsizei = Word32
+type GLsizei = Int32
 
 -- | 32bit enumerated binary integer value
 type GLenum = Word32
@@ -318,7 +318,7 @@ type GLenum = Word32
 type GLintptr = Int
 
 -- | Pointer-sized non-negative binary integer size
-type GLsizeiptr = Word
+type GLsizeiptr = Int
 
 -- | 32bit bit field
 type GLbitfield = Word32
