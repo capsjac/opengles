@@ -274,7 +274,80 @@ module Graphics.OpenGLES.Base (
 
 	glDrawTexiOES,
 	glMultiDrawArraysEXT,
-	glMultiDrawElementsEXT
+	glMultiDrawElementsEXT,
+	glGenVertexArraysOES,
+	glBindVertexArrayOES,
+	glDeleteVertexArraysOES,
+	glIsVertexArrayOES,
+
+	glDispatchCompute,
+	glDispatchComputeIndirect,
+	glDrawArraysIndirect,
+	glDrawElementsIndirect,
+	glFramebufferParameteri,
+	glGetFramebufferParameteriv,
+	glGetProgramInterfaceiv,
+	glGetProgramResourceIndex,
+	glGetProgramResourceName,
+	glGetProgramResourceiv,
+	glGetProgramResourceLocation,
+	glUseProgramStages,
+	glActiveShaderProgram,
+	glCreateShaderProgramv,
+	glBindProgramPipeline,
+	glDeleteProgramPipelines,
+	glGenProgramPipelines,
+	glIsProgramPipeline,
+	glGetProgramPipelineiv,
+	glProgramUniform1i,
+	glProgramUniform2i,
+	glProgramUniform3i,
+	glProgramUniform4i,
+	glProgramUniform1ui,
+	glProgramUniform2ui,
+	glProgramUniform3ui,
+	glProgramUniform4ui,
+	glProgramUniform1f,
+	glProgramUniform2f,
+	glProgramUniform3f,
+	glProgramUniform4f,
+	glProgramUniform1iv,
+	glProgramUniform2iv,
+	glProgramUniform3iv,
+	glProgramUniform4iv,
+	glProgramUniform1uiv,
+	glProgramUniform2uiv,
+	glProgramUniform3uiv,
+	glProgramUniform4uiv,
+	glProgramUniform1fv,
+	glProgramUniform2fv,
+	glProgramUniform3fv,
+	glProgramUniform4fv,
+	glProgramUniformMatrix2fv,
+	glProgramUniformMatrix3fv,
+	glProgramUniformMatrix4fv,
+	glProgramUniformMatrix2x3fv,
+	glProgramUniformMatrix3x2fv,
+	glProgramUniformMatrix2x4fv,
+	glProgramUniformMatrix4x2fv,
+	glProgramUniformMatrix3x4fv,
+	glProgramUniformMatrix4x3fv,
+	glValidateProgramPipeline,
+	glGetProgramPipelineInfoLog,
+	glBindImageTexture,
+	glGetBooleani_v,
+	glMemoryBarrier,
+	glMemoryBarrierByRegion,
+	glTexStorage2DMultisample,
+	glGetMultisamplefv,
+	glSampleMaski,
+	glGetTexLevelParameteriv,
+	glGetTexLevelParameterfv,
+	glBindVertexBuffer,
+	glVertexAttribFormat,
+	glVertexAttribIFormat,
+	glVertexAttribBinding,
+	glVertexBindingDivisor
 	) where
 import Foreign
 import Foreign.C.String
@@ -378,6 +451,13 @@ _procname = unwrap_/**/_procname (eglGetProcAddress "_procname") ; \
 --   unwrap_glActiveTexture :: FunPtr (GLenum -> GL ()) -> GLenum -> GL ();
 -- glActiveTexture :: GLenum -> GL ();
 -- glActiveTexture = unwrap_glActiveTexture (eglGetProcAddress "glActiveTexture");
+
+
+-- Share unwrap_* with a mother function
+#define GL_DUP(_procname, _mother, _typ) \
+_procname :: _typ; \
+_procname = unwrap_/**/_mother (eglGetProcAddress "_procname") ; \
+{-# NOINLINE _procname #-} \
 
 
 -- ** OpenGL ES 2.0
@@ -636,6 +716,10 @@ GL_EXT(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint
 GL_EXT(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> GL ())
 GL_EXT(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> GL ())
 GL_EXT(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> GL ())
+GL_DUP(glBindVertexArrayOES,glBindVertexArray, GLuint -> GL ())
+GL_DUP(glDeleteVertexArraysOES,glDeleteVertexArrays, GLsizei -> Ptr GLuint -> GL ())
+GL_DUP(glGenVertexArraysOES,glGenVertexArrays, GLsizei -> Ptr GLuint -> GL ())
+GL_DUP(glIsVertexArrayOES,glIsVertexArray, GLuint -> GL GLboolean)
 
 -- ** OpenGL ES 3.1
 GL_EXT(glDispatchCompute, GLuint -> GLuint -> GLuint -> GL ())
