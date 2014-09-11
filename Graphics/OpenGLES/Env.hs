@@ -7,7 +7,8 @@ import Foreign.C.String
 import Graphics.OpenGLES.Base
 import System.IO.Unsafe (unsafePerformIO)
 
--- * String Parameters
+-- * Extension detection
+
 {-# NOINLINE glExtensions #-}
 glExtensions :: [String]
 glExtensions = unsafePerformIO $
@@ -19,15 +20,32 @@ hasExt ext = ext `elem` glExtensions
 --hasExt :: CString -> Bool
 --glGetString 0x1F03 >>= indexOf ext /= -1
 
+hasES3 :: Bool
+hasES3 = glEnv majorVersion > 2
+
+extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
+	GLuint -> GL (),
+	GLsizei -> Ptr GLuint -> GL ())
+extVAO | hasES3 =
+		Just (glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays)
+        | hasExt "GL_OES_vertex_array_object" =
+		Just (glGenVertexArraysOES, glBindVertexArrayOES, glDeleteVertexArraysOES)
+        | otherwise = Nothing
+
+
+-- * String Parameters
+
 glVendor, glRenderer, glVersion, glShadingLanguageVersion :: String
 glVendor = unsafePerformIO $ glGetString 0x1F00 >>= peekCString
 glRenderer = unsafePerformIO $ glGetString 0x1F01 >>= peekCString
 glVersion = unsafePerformIO $ glGetString 0x1F02 >>= peekCString
 glShadingLanguageVersion = unsafePerformIO $ glGetString 0x8B8C >>= peekCString
 
+isPVRTCsupported, isATITCsupported, isS3TCsupported :: Bool
 isPVRTCsupported = hasExt "GL_IMG_texture_compression_pvrtc"
 isATITCsupported = hasExt "GL_ATI_texture_compression_atitc"
 isS3TCsupported = hasExt "GL_EXT_texture_compression_s3tc"
+
 
 -- * Integer Parameters
 
@@ -49,6 +67,9 @@ glEnv (GLParam param) = unsafePerformIO $
 	with 0 $ \ptr -> glGetIntegerv param ptr >> peek ptr
 
 -- !!! add version for ES3+ or Ext, copy desc from man, least value for each version
+
+majorVersion, minorVersion, numExtensions,
+	numProgramBinaryFormats :: GLParam
 
 -- | /ES 3+/ The major version number of the OpenGL ES API supported by the
 -- current context. Note: ES 2 does not support this param thus returns 0.
@@ -281,8 +302,9 @@ glPair (GLParamP param) = unsafePerformIO $
 		r2 <- peekByteOff p 4
 		return (r1, r2)
 
+aliasedPointSizeRange, aliasedLineWidthRange, maxViewportDims :: GLParamP
 -- | The (smallest, largest) supported sizes for points.
--- The smallest size must be <= 1, and the largest size must be >= 1.
+-- The smallest size must be \<= 1, and the largest size must be \>= 1.
 aliasedPointSizeRange = GLParamP 0x846D
 -- | The range of widths supported for aliased lines.
 aliasedLineWidthRange = GLParamP 0x846E
