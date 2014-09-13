@@ -1,10 +1,10 @@
 name:                opengles
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      This library is intended use on mobile, however,
                      also works in OpenGL 4.1/4.3+ environment.
-license:             PublicDomain
+license:             LGPL-3
 license-file:        LICENSE
 author:              capsjac@gmail.com
 maintainer:          capsjac@gmail.com
@@ -37,7 +37,9 @@ library
     base >= 4.6 && < 5,
     bytestring >= 0.10 && < 1,
     vect >= 0.4 && < 0.5,
-    ghc-prim
+    ghc-prim,
+    array >= 0.5 && < 0.6,
+    future-resource >=0.3
   
   include-dirs: include
   

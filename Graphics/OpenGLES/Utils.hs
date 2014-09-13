@@ -1,5 +1,5 @@
 module Graphics.OpenGLES.Utils where
---import Data.Array.ST (newArray, getElems, MArray, STUArray)
+{--import Data.Array.ST (newArray, getElems, MArray, STUArray)
 --import Data.Array.Unsafe (castSTUArray)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
@@ -202,3 +202,4 @@ blockGPUWhileDraw = do
 --unsafeDrawData dc = compileCall >>= drawData
 
 -- AABB from model
+-}
