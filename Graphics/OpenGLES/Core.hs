@@ -2,7 +2,7 @@
 -- |
 -- Module      :  Graphics.OpenGLES.Core
 -- Copyright   :  (c) capsjac 2014
--- License     :  GPLv3 (see the file LICENSE)
+-- License     :  LGPL-3 (see the file LICENSE)
 -- 
 -- The neat and easy to use wrapper for OpenGL EmbedSystems (ES).
 -- The wrapper is optimised for mobile and have small footprint.
@@ -20,9 +20,10 @@
 module Graphics.OpenGLES.Core where
 import Control.Applicative
 import Control.Monad
-import Control.Concurrent (forkOS, ThreadId)
+import Control.Concurrent (forkOS, ThreadId, myThreadId, killThread)
 import Control.Concurrent.Chan
 import Control.Exception (catch, SomeException)
+import Control.Future
 import Data.Array.Base (getNumElements)
 import Data.Array.Storable
 import Data.Array.Storable.Internals
@@ -37,129 +38,196 @@ import Foreign.Concurrent (newForeignPtr, addForeignPtrFinalizer)
 -- GHC only   ^^^^^^^^^^
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
+import Linear
 import System.IO.Unsafe (unsafePerformIO)
 
 
 -- * Initialization
 
 forkGL
-	:: IO () 
-	-> GL () 
-	-> IO ThreadId 
-	               
-forkGL bindEGL unbindEGL = forkOS $ do
+	:: IO Bool
+	-> GL ()
+	-> GL ()
+	-> IO ThreadId
+forkGL resumeGL suspendGL swapBuffers = forkOS $ do
+	writeIORef drawOrExit (Just swapBuffers)
+	resumeGL -- Note: implicit glFlush here
+	putStrLn "bindEGL"
+	-- glRestoreLostObjects
 	let loop count = do
-		bindEGL
-		putStrLn "bindEGL"
+		putStrLn $ "start draw " ++ show count
 		readChan drawQueue >>= id
-		putStrLn "unbindEGL"
-		unbindEGL
 		loop (count + 1)
 	catch (loop 0) $ \(e :: SomeException) -> do
 		glLog $ "Rendering thread terminated: " ++ show e
-		unbindEGL
-		modifyIORef contextRev (+1)
-glRun :: GL () -> IO ()
-glRun io = writeChan drawQueue io
+		suspendGL
+		putStrLn "unbindEGL"
+		writeIORef drawOrExit (Just (glLog "Fatal lifecycle bug"))
 
+stopGL :: IO ()
+stopGL = do
+	putStrLn "stopGL"
+	writeIORef drawOrExit Nothing
+			let waitGLThread = readIORef drawOrExit >>= \case
+		Just _ -> nop
+		Nothing -> waitGLThread
+	waitGLThread
+	putStrLn "Rendering has stopped."
 
-glRunRes :: GL () -> IO ()
-glRunRes io = writeChan drawQueue io
+--destroyGL :: IO ()
+--destroyGL = runGL $ eglMakeCurrent Nothing, eglDestroyXXX ...
 
+endFrameGL :: IO ()
+endFrameGL = runGL $ do
+	readIORef drawOrExit >>= \case
+		Just eglSwapBuffer -> eglSwapBuffer
+		Nothing -> myThreadId >>= killThread
+		runGL :: GL () -> IO ()
+runGL io = writeChan drawQueue io
+
+--runGLRes :: GL () -> IO ()
+--runGLRes io = forkOS
+withGL :: GL a -> IO (Future' a)
+withGL io = asyncIO $ \update -> runGL (io >>= update . Finished)
+
+-- | drawQueue may have drawcalls that use previous context,
+-- so make it sure they are removed from the queue.
+resetDrawQueue :: IO ()
+resetDrawQueue = do
+	empty <- isEmptyChan drawQueue
+	when (not empty) (readChan drawQueue >> resetDrawQueue)
 
 glLog :: String -> IO ()
 glLog msg = writeChan errorQueue msg
 
-
-readGLLog :: IO [String]
-readGLLog = do
+glReadLogs :: IO [String]
+glReadLogs = do
 	empty <- isEmptyChan errorQueue
 	if empty
 		then return []
-		else (:) <$> readChan errorQueue <*> readGLLog
+		else (:) <$> readChan errorQueue <*> glReadLogs
 
-
-getGLLogContents :: IO [String]
-getGLLogContents = getChanContents errorQueue
+glLogContents :: IO [String]
+glLogContents = getChanContents errorQueue
 
 
 -- * Buffering
 
+type GLArray a = StorableArray Int a
+-- forall s. ST s a -> a
 -- Buffer usage [GLtype] stride id (latestArray, isBufferSynced)
-data Buffer a = Buffer BufferUsage ObjId (IORef (StorableArray Int a, Bool))
+data Buffer a =
+	Buffer BufferUsage GLO (IORef (GLArray a))
+-- DoubleBuffer BufferUsage GLO GLO (IORef (Bool, GLArray a, GLArray a))
 
 
 -- ** Constructing mutable Buffers
 
+newGLO
+	:: (GLsizei -> Ptr GLuint -> GL ())
+	-> (GLuint -> GL ())
+	-> (GLsizei -> Ptr GLuint -> GL ())
+	-> GL GLO
+newGLO gen bind del = do
+	ref <- newIORef undefined
+	genObj ref gen bind del
+	return ref
 
-newBuffer :: Storable a => BufferUsage -> Int -> IO (Buffer a)
-newBuffer usage elems = do
+-- | genObj glo glGenBuffers glDeleteBuffers
+genObj
+	:: GLO
+	-> (GLsizei -> Ptr GLuint -> GL ())
+	-> (GLuint -> GL ())
+	-> (GLsizei -> Ptr GLuint -> GL ())
+	-> GL GLuint
+genObj ref genObjs bindObj delObjs = do
+	fp <- mallocForeignPtr
+	withForeignPtr fp $ \ptr -> do
+		genObjs 1 ptr
+		showError "genObj"
+		obj <- peek ptr
+		writeIORef ref (obj, fp)
+				addForeignPtrFinalizer fp $ do
+			(obj, _) <- readIORef ref
+			with obj $ \ptr -> do
+				delObjs 1 ptr
+				showError "delObj"
+		bindObj obj
+		return obj
+newBuffer = newGLO glGenBuffers (glBindBuffer 0x8892) glDeleteBuffers
+
+glNewBuffer :: forall a. Storable a => BufferUsage -> Int -> GL (Buffer a)
+glNewBuffer usage elems = do
 	array <- newArray_ (0, elems)
-	Buffer usage <$> newObjId <*> newIORef (array, False)
+	glo <- newBuffer
+	bufferData array_buffer usage (elems * sizeOf (undefined :: a)) nullPtr
+	Buffer usage glo <$> newIORef array
 
-
-newListBuffer
-	:: Storable a => BufferUsage -> (Int, Int) -> [a] -> IO (Buffer a)
-newListBuffer usage ix xs = do
+glNewListBuffer
+	:: forall a. Storable a => BufferUsage
+	-> (Int, Int)	-> [a]
+	-> GL (Buffer a)
+glNewListBuffer usage ix xs = do
 	array <- newListArray ix xs
-	Buffer usage <$> newObjId <*> newIORef (array, False)
+	glo <- newBuffer
+	withStorableArraySize array $ \size ptr ->
+		bufferData array_buffer usage size ptr
+	Buffer usage glo <$> newIORef array
 
-
-loadBuffer :: forall a. Storable a => BufferUsage -> B.ByteString -> IO (Buffer a)
-loadBuffer usage bs@(B.PS foreignPtr offset length) = do
+glLoadBS :: forall a. Storable a => BufferUsage -> B.ByteString -> GL (Buffer a)
+glLoadBS usage bs@(B.PS foreignPtr offset len) = do
 	let fp | offset == 0 = foreignPtr
 	       | otherwise = case B.copy bs of (B.PS f _ _) -> f
-	let elems = (length `div` sizeOf (undefined :: a))
+	let elems = (len `div` sizeOf (undefined :: a))
 	let array = StorableArray 0 (elems-1) elems (castForeignPtr fp)
-	Buffer usage <$> newObjId <*> newIORef (array, False)
+	glo <- newBuffer
+	withForeignPtr fp $ \ptr ->
+		bufferData array_buffer usage len ptr
+	Buffer usage glo <$> newIORef array
 
 
 -- ** Updating mutable Buffers
 
+unsafeObtainStorableArray :: Buffer a -> IO (GLArray a)
+unsafeObtainStorableArray (Buffer _ _ arr) = readIORef arr
 
-getSArray :: Storable a => Buffer a -> IO (StorableArray Int a)
-getSArray (Buffer _ _ ref) = readIORef ref >>= return . fst
+withStorableArraySize
+	:: forall i e a. Storable e
+	=> StorableArray i e -> (Int -> Ptr e -> IO a) -> IO a
+withStorableArraySize (StorableArray _ _ n fp) f =
+	withForeignPtr fp (f size)
+	where size = n * sizeOf (undefined :: e)
 
-bindBuf :: GLenum -> Buffer a -> GL ()
-bindBuf target (Buffer usage obj aref) = do
-	rev <- readIORef contextRev
-	buf <- readIORef obj >>= \case
-		Ok gen buf _ | gen == rev ->
-			return buf
-		otherwise -> do
-			modifyIORef aref $ \(arr, _) -> (arr, False)
-			genObj rev obj glGenBuffers glDeleteBuffers
-	glBindBuffer target buf
-
--- | 
-commit :: forall a. Storable a => Buffer a -> IO ()
-commit buf@(Buffer (BufferUsage usage) _ aref) = do
-	bindBuf c_array_buffer buf
-	(array, synced) <- readIORef aref
-	when (not synced) $ do
-		size <- (sizeOf (undefined :: a) *) <$> getNumElements array
-		withStorableArray array $ \ptr ->
-			glBufferData c_array_buffer size (castPtr ptr) usage
-{-renewBuffer :: Storable a => BufferUsage -> Int -> Buffer a -> IO (Buffer a)
-renewBuffer usage elems (Buffer _ old _) = do
+-- Performance hint http://www.opentk.com/node/1930
+glRenewBuffer :: forall a. Storable a => BufferUsage -> Int -> Buffer a -> GL ()
+glRenewBuffer usage elems buf@(Buffer _ _ ref) = do
 	array <- newArray_ (0, elems)
-	rev <- readIORef contextRev
-	objid <- readIORef old >>= \case
-		Ok gen id | gen == rev -> newIORef (Renew id)
-		otherwise -> newObjId
-	Buffer usage objid <$> newIORef (array, False)
+	bindBuffer array_buffer buf
+	bufferData array_buffer usage (elems * sizeOf (undefined :: a)) nullPtr
+	writeIORef ref array
 
-renewListBuffer
-	:: Storable a =>
-	BufferUsage -> (Int, Int) -> [a] -> Buffer b -> IO (Buffer a)
-renewListBuffer usage ix xs (Buffer _ old _) = do
+glRenewListBuffer :: forall a. Storable a =>
+	BufferUsage -> (Int, Int) -> [a] -> Buffer a -> GL ()
+glRenewListBuffer usage ix xs buf@(Buffer _ _ ref) = do
 	array <- newListArray ix xs
-	rev <- readIORef contextRev
-	objid <- readIORef old >>= \case
-		Ok gen id | gen == rev -> newIORef (Renew id)
-		otherwise -> newObjId
-	Buffer usage objid <$> newIORef (array, False)
--}
+	bindBuffer array_buffer buf
+	withStorableArraySize array $ \size ptr -> do
+		bufferData array_buffer usage 0 nullPtr
+		bufferData array_buffer usage size ptr
+	writeIORef ref array
+
+glReloadBS :: forall a. Storable a =>
+	BufferUsage -> B.ByteString -> Buffer a -> GL ()
+glReloadBS usage bs@(B.PS foreignPtr offset len) buf = do
+	let fp | offset == 0 = foreignPtr
+	       | otherwise = case B.copy bs of (B.PS f _ _) -> f
+	let elems = (len `div` sizeOf (undefined :: a))
+	let array = StorableArray 0 (elems-1) elems (castForeignPtr fp)
+	withForeignPtr fp $ \ptr -> do
+		bufferData array_buffer usage 0 nullPtr
+		bufferData array_buffer usage len ptr
+
+
 
 newtype BufferUsage = BufferUsage GLenum
 -- | STATIC_DRAW (Default)
@@ -186,23 +254,24 @@ gl2glStream = BufferUsage 0x88E2
 -- ** Raw Buffer Operations
 
 bindBuffer :: BufferSlot -> Buffer a -> GL ()
-bindBuffer (BufferSlot target) buf =
-	glBindBuffer target =<< getBufId buf
+bindBuffer (BufferSlot target) (Buffer _ glo _) =
+	glBindBuffer target . fst =<< readIORef glo
 
 bindBufferRange :: BufferSlot -> GLuint -> Buffer a -> Int -> Int -> GL ()
-bindBufferRange (BufferSlot t) index buf offset size =
-	(\x -> glBindBufferRange t index x offset size) =<< getBufId buf
+bindBufferRange (BufferSlot t) index (Buffer _ glo _) offset size = do
+	buf <- fmap fst $ readIORef glo
+	glBindBufferRange t index buf offset size
 
 bindBufferBase :: BufferSlot -> GLuint -> Buffer a -> GL ()
-bindBufferBase (BufferSlot t) index buf =
-	glBindBufferBase t index =<< getBufId buf
+bindBufferBase (BufferSlot t) index (Buffer _ glo _) = do
+	glBindBufferBase t index . fst =<< readIORef glo
 
-bufferData :: BufferSlot -> BufferUsage -> (Ptr a, Int) -> GL ()
-bufferData (BufferSlot target) (BufferUsage usage) (ptr, size) =
+bufferData :: BufferSlot -> BufferUsage -> Int -> Ptr a -> GL ()
+bufferData (BufferSlot target) (BufferUsage usage) size ptr =
 	glBufferData target size (castPtr ptr) usage
 
-bufferSubData :: BufferSlot -> Int -> (Ptr a, Int) -> GL ()
-bufferSubData (BufferSlot target) offset (ptr, size) =
+bufferSubData :: BufferSlot -> Int -> Int -> Ptr a -> GL ()
+bufferSubData (BufferSlot target) offset size ptr =
 	glBufferSubData target offset size (castPtr ptr)
 
 -- *** 3+ | GL_OES_mapbuffer glUnmapBufferOES
@@ -247,63 +316,42 @@ transform_feedback_buffer = BufferSlot 0x8C8E
 -- *** 3+ | GL_NV_copy_buffer
 copy_read_buffer = BufferSlot 0x8F36
 copy_write_buffer = BufferSlot 0x8F37
+
+
+
 -- * Drawing
 
 glDraw :: Typeable p
 	=> DrawMode
 	-> Program p
-	-> [SetGraphicsState]
+	-> [GraphicsState]
 	-> [UniformAssignment p]
 	-> VertexArray p
 	-> VertexPicker
-	-> IO Bool
-glDraw (DrawMode mode) prog@(Program _ _ pref _) setState unifs
-		(VertexArray setVA vref) (VertexPicker picker) = do
-	rev <- readIORef contextRev
-	pid <- readIORef pref >>= \case
-		Ok generation pid _ | rev == generation -> return pid
-		Making -> return 0
-		Broken -> return 0
-		otherwise -> do
-			writeIORef pref Making
-			glRun $ loadProgram prog (\_ _ _->nop)
-			return 0
-	if pid == 0 then return False
-	else glRun (do
-		case extVAO of
-			Nothing -> setVA
-			Just (gen, bind, del) -> readIORef vref >>= \case
-				Ok gen vao _ | rev == gen ->
-					bind vao
-				otherwise ->
-					genObj rev vref gen del >> setVA
-		glUseProgram pid
-		sequence setState
-		sequence unifs
-		picker mode
-		Control.Monad.void $ validateProgram prog
-		) >> return True
-
--- | See @Graphics.OpenGLES.State@
-type SetGraphicsState = GL ()
+	-> GL Bool
+glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
+		(VertexArray (vao, setVA)) (VertexPicker picker) = do
+	glUseProgram . fst =<< readIORef pobj
+	sequence setState
+	sequence unifs
+	case extVAO of
+		Nothing -> setVA
+		Just (_, bind, _) -> readIORef vao >>= bind . fst
+	picker mode
+	glValidate prog
+	return True-- | See "Graphics.OpenGLES.State"
+type GraphicsState = GL ()
 
 
 -- ** Draw Mode
 
-
 newtype DrawMode = DrawMode GLenum
-
 drawPoints = DrawMode 0
-
 drawLines = DrawMode 1
-
 drawLineLoop = DrawMode 2
-
 drawLineStrip = DrawMode 3
-
 drawTriangles = DrawMode 4
 triangleStrip = DrawMode 5
-
 triangleFan = DrawMode 6
 
 
@@ -327,51 +375,51 @@ geometryShader = Shader 0x8DD9
 tessellationEvalS = Shader 0x8E87 --, "TessellationEvalute")
 tessellationCtrlS = Shader 0x8E88 --, "TessellationControl")
 
-
-
 data Program p = Program
-	{ programTF :: TransformFeedback
+	{ programGLO :: GLO
+	, programTF :: TransformFeedback
 	, programShaders :: [Shader]
-	, __pobj :: ObjId
-	, programVariables :: ()
+	, programVariables :: [()]
 	} deriving Show
 
-instance Show (IORef ObjState) where
-	show = const "<id>"
+type ProgramBinary = B.ByteString
 
-mkProgram :: Typeable p => TransformFeedback -> [Shader] -> IO (Program p)
-mkProgram tf shaders = Program tf shaders <$> newObjId <*> pure ()
-
+glCompile
+	:: Typeable p
+	=> TransformFeedback
+	-> [Shader]
+	-> (Program p -> Int -> String -> Maybe ProgramBinary -> GL ())
+									-> GL (Progress [String] (Program p))
+glCompile tf shaders progressLogger = do
+	glo <- newIORef undefined
+	let prog = Program glo tf shaders []
+	loadProgram prog (progressLogger prog)
 
 data TransformFeedback =
-	
-	  NoFeedback
-	
-	| FeedbackArrays [String]
-	
-	| FeedbackPacked [String]
+		  NoFeedback
+		| FeedbackArrays [String]
+		| FeedbackPacked [String]
 	deriving Show
 
+-- 
+--glCompile :: Typeable p => Program p
+--         -> (Program p -> Int -> String -> Maybe ProgramBinary -> GL ())
+                     -- | glValidateProgram checks to see whether the executables contained in
+-- program can execute given the current OpenGL state.
+glValidate :: Program p -> GL String
+glValidate prog = alloca $ \intptr -> do
+	(pid, _) <- readIORef $ programGLO prog
+	glValidateProgram pid
+	glGetProgramiv pid c_info_log_length intptr
+	len <- fmap fromIntegral $ peek intptr
+	info <- allocaBytes len $ \buf -> do
+		glGetProgramInfoLog pid (fromIntegral len) nullPtr buf
+		peekCStringLen (buf, len-1)
+	glLog $ "validateProgram:\n" ++ info
+	return info
 
 
-glCompile :: Typeable p => Program p
-          -> (Program p -> Int -> String -> Maybe ProgramBinary -> IO ())
-          -> IO Bool 
-glCompile prog@(Program _ _ ref _) progressLogger = do
-	putStrLn "glCompile"
-	rev <- readIORef contextRev
-	readIORef ref >>= \case
-		Ok generation id _ | rev == generation -> return True
-		Making -> return False
-		Broken -> return False
-		Unused -> do
-			writeIORef ref Making
-			glRun $ loadProgram prog (progressLogger prog)
-			return False
-
-type ProgramBinary = (GLenum, B.ByteString)
 -- ** Uniform Variable
-
 --class GLVar m v a where
 --	($=) :: m p a -> a -> (m (), v ())
 --	($-) :: m p a -> v a -> (m (), v ())
@@ -384,7 +432,6 @@ type ProgramBinary = (GLenum, B.ByteString)
 type UniformAssignment p = GL ()
 
 --UnifVal a => (Uniform p a, a)
-
 newtype Uniform p a = Uniform GLint
 
 uniform :: UnifVal a => GLName -> IO (Uniform p a)
@@ -394,14 +441,20 @@ uniform name = return $ Uniform 0
 
 class UnifVal a where
 	glUniform :: GLint -> a -> IO ()
+instance UnifVal Float where glUniform = glUniform1f
+--instance UnifVal Vec2 where glUniform = glUniform2f
+--instance UnifVal Vec3 where glUniform = glUniform3f
+--instance UnifVal Vec4 where glUniform = glUniform4f
 
 
 -- ** Vertex Attribute
 
-newtype Attrib p a = Attrib (GLint, GLboolean)
+newtype Attrib p a = Attrib (GLint, GLboolean, Int)
+-- (location, normalize, divisor)
+-- normalized color `divisor` 1 $= buffer
 
 attrib :: AttrStruct a => Program p -> GLName -> IO (Attrib p a)
-attrib prog name = return $ Attrib (0, 0)
+attrib prog name = return $ Attrib (0, 0, 0)
 	{-readIORef (_pobj prog) >>= \case
 		Ok generation id -> if ...
 			withCString name (glGetAttribLocation prog)
@@ -412,7 +465,7 @@ attrib prog name = return $ Attrib (0, 0)
 		Broken -> return $ Attrib (name, 0)-}
 
 normalized :: Attrib p a -> Attrib p a
-normalized (Attrib (n, _)) = Attrib (n, 1)
+normalized (Attrib (n, _, d)) = Attrib (n, 1, d)
 
 class AttrStruct a where
 	glAttrib :: GLint -> GLboolean -> Buffer a -> IO ()
@@ -425,19 +478,22 @@ type SetVertexAttr p = GL ()
 --	4eachstruct:
 --	glVertexAttribPointer loc size typ norm stride (idToPtr id)
 
-c_array_buffer = 0x8892
+newtype VertexArray p = VertexArray (GLO, GL ())
+-- (glo, init)
 
-data VertexArray p = VertexArray (GL ()) ObjId
-
-newVA :: [SetVertexAttr p] -> IO (VertexArray p)
-newVA attrs = VertexArray (sequence_ attrs) <$> newObjId
+glVA :: [SetVertexAttr p] -> GL (VertexArray p)
+glVA attrs = do
+	let setVA = sequence_ attrs
+	glo <- case extVAO of
+		Nothing -> return (error "GLO not used")
+		Just (gen, bind, del) ->
+			newGLO gen bind del <* setVA
+	return $ VertexArray (glo, setVA)
 
 
 -- ** Vertex Picker
 
-
 newtype VertexPicker = VertexPicker (GLenum -> GL ())
-
 
 -- Wrapping glDrawArrays
 takeFrom :: Int32 -> Int32 -> VertexPicker
@@ -446,13 +502,13 @@ takeFrom first count =
 		glDrawArrays mode first count
 		showError "glDrawArrays"
 
-
 -- Wrapping glDrawArraysInstanced[EXT]
 takeFromInstanced :: Int32 -> Int32 -> Int32 -> VertexPicker
 takeFromInstanced first count numInstances =
 	VertexPicker $ \mode -> do
 		glDrawArraysInstanced mode first count numInstances
 		showError "glDrawArraysInstanced"
+
 -- Wrapping glMultiDrawArraysEXT
 takeFromMany :: [(Int32, Int32)] -> VertexPicker
 takeFromMany list =
@@ -477,46 +533,44 @@ byIndex :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> VertexPicker
 byIndex buf first count =
 	let (typ, stride) = glVxIx buf in
 	VertexPicker $ \mode -> do
-		-- bind GL_ELEMENT_ARRAY_BUFFER = 0x8893
-		glBindBuffer 0x8893 =<< getBufId buf
+		bindBuffer element_array_buffer buf
 		glDrawElements mode count typ (sizePtr $ first * stride)
 		showError "glDrawElements"
+
 -- Wrapping glDrawElementsInstanced[EXT]
 byIndexInstanced :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> Int32 -> VertexPicker
 byIndexInstanced buf first count instances =
 	let (typ, stride) = glVxIx buf in
 	VertexPicker $ \mode -> do
-		glBindBuffer 0x8893 =<< getBufId buf
+		bindBuffer element_array_buffer buf
 		glDrawElementsInstanced mode count typ
 			(sizePtr $ first * stride) instances
 		showError "glDrawElementsInstanced"
+
 -- Wrapping glMultiDrawElementsEXT
 byIndices :: VertexIx a => (Buffer a) -> [(Int32, Int32)] -> VertexPicker
 byIndices buf list =
 	let (typ, stride) = glVxIx buf in
 	VertexPicker $ \mode -> do
-		glBindBuffer 0x8893 =<< getBufId buf
+		bindBuffer element_array_buffer buf
 		forM_ list $ \(first, count) -> do
 			glDrawElements mode count typ (sizePtr $ first * stride)
 			showError "glDrawElements[]"
-		
-		--withFirstCountArray list $ \cptr iptr clen -> do
+				--withFirstCountArray list $ \cptr iptr clen -> do
 		--	glMultiDrawElementsEXT mode cptr typ iptr (clen * stride)
 		--	showError "glMultiDrawElementsEXT"
 -- ByIndicesRaw (Buffer w) (Buffer Word32) (Buffer Word32)
-
 
 -- Wrapping glDrawRangeElements[EXT]
 byIndexLimited :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> Word32 -> Word32 -> VertexPicker
 byIndexLimited buf first count min max =
 	let (typ, stride) = glVxIx buf in
 	VertexPicker $ \mode -> do
-		glBindBuffer 0x8893 =<< getBufId buf
+		bindBuffer element_array_buffer buf
 		glDrawElements mode count typ (sizePtr $ first * stride)
 		showError "glDrawElements'"
 		--showError "glDrawRangeElements[EXT]"
 -- FromToIndexRaw !BufferRef !Int !Int !GLsizei !GLenum !Int
-
 
 drawCallSequence :: [VertexPicker] -> VertexPicker
 drawCallSequence xs =
@@ -525,20 +579,16 @@ drawCallSequence xs =
 
 
 
--- * Others
+-- * Other Operations
 
--- | @return ()@
-nop :: Monad m => m ()
-nop = return ()
-
-
--- @clear [] colorBuffer@
--- @clear [bindFramebuffer buf] (colorBuffer+depthBuffer)@
-clear
-	:: [SetGraphicsState]
+-- 
+-- > glClean [] colorBuffer
+-- > glClean [bindFramebuffer buf] (colorBuffer+depthBuffer)
+glClean
+	:: [GraphicsState]
 	-> ClearBuffers
-	-> IO ()
-clear gs (ClearBufferFlags flags) = glRun (sequence gs >> glClear flags)
+	-> GL ()
+glClean gs (ClearBufferFlags flags) = sequence gs >> glClear flags
 
 newtype ClearBuffers = ClearBufferFlags GLenum deriving Num
 clearDepth = ClearBufferFlags 0x100
@@ -546,15 +596,20 @@ clearStencil = ClearBufferFlags 0x400
 clearColor = ClearBufferFlags 0x4000
 
 flushCommandQ :: IO ()
-flushCommandQ = glRun glFlush
+flushCommandQ = runGL glFlush
 
 finishCommands :: IO ()
-finishCommands = glRun glFinish
+finishCommands = runGL glFinish
+
+-- | @return ()@
+nop :: Monad m => m ()
+nop = return ()
+
 -- * Internal
 
-
-contextRev :: IORef Int
-contextRev = unsafePerformIO $ newIORef 0
+-- if Nothing, main GL thread should stop before the next frame.
+drawOrExit :: IORef (Maybe (GL ())) -- eglSwapBuffer inside
+drawOrExit = unsafePerformIO $ newIORef Nothing
 
 drawQueue :: Chan (GL ())
 drawQueue = unsafePerformIO newChan
@@ -563,6 +618,9 @@ drawQueue = unsafePerformIO newChan
 errorQueue :: Chan String
 errorQueue = unsafePerformIO newChan
 {-# NOINLINE errorQueue #-}
+
+
+-- ** GL Error
 
 data GLError = InvalidEnum | InvalidValue | InvalidOperation
              | OutOfMemory | InvalidFrameBufferOperation
@@ -584,34 +642,32 @@ showError location =
 		(\err -> glLog $ location ++ ": " ++ show err)
 
 
-data ObjState =
-	-- gen, object id, fp
-	  Ok Int GLuint (ForeignPtr GLuint)
-	| Making
-	| Unused
-	| Broken
+-- ** GL Object management
 
-type ObjId = IORef ObjState
-newObjId = newIORef Unused
+type GLO = IORef (GLuint, ForeignPtr GLuint)
 
-getBufId :: Buffer a -> GL GLuint
-getBufId (Buffer _ ref _) = do
-	rev <- readIORef contextRev
-	readIORef ref >>= \case
-		Ok gen id _ | rev == gen -> return id
-		otherwise -> return 0
+instance Show GLO where
+	show ref = show . unsafePerformIO $ readIORef ref
+
+-- ** Garbage collection for GPU objects
 
 sizePtr :: Int32 -> Ptr ()
 sizePtr = intPtrToPtr . fromIntegral
+
+-- glRestoreLostObjects :: GL ()
+-- saveBuffer :: Buffer -> IO ()
+-- saveBuffer buf = atomicModifyIORef (buf:) bufferArchive
+-- bufferArchive = unsafePerformIO $ newIORef []
 
 
 -- ** Loading Shaders
 
 loadProgram
-	:: Typeable p => Program p
+	:: Typeable p
+	=> Program p
 	-> (Int -> String -> Maybe ProgramBinary -> GL ())
-	-> GL ()
-loadProgram prog@(Program tf shaders ref vars) progressLogger = do
+	-> GL (Progress [String] (Program p))
+loadProgram prog@(Program glo tf shaders []) progressLogger = do
 	let numShaders = length shaders
 	let progname = show (typeRep prog)
 	let msg = "Start compiling: " ++ progname
@@ -619,30 +675,34 @@ loadProgram prog@(Program tf shaders ref vars) progressLogger = do
 	progressLogger 0 msg Nothing
 	
 	pid <- glCreateProgram
-	if pid == 0 then do
+	res <- if pid == 0 then do
 		showError "glCreateProgram"
-		progressLogger (numShaders + 1)
-			"Fatal: glCreateProgram returned 0." Nothing
-		writeIORef ref Broken
+		let msg = "Fatal: glCreateProgram returned 0."
+		progressLogger (numShaders + 1) msg Nothing
+		return $ Fixme [msg]
 	else do
-		
-		results <- mapM (loadShader progressLogger) (zip [1..] shaders)
+				results <- mapM (loadShader progressLogger) (zip [1..] shaders)
 		-- putStrLn $ show results
-		if any (== Nothing) results
-		then writeIORef ref Broken
+		let errors = [msg | Fixme [msg] <- results]
+		res <- if errors /= []
+		then return $ Fixme errors
 		else do
-			forM_ results $ \(Just sid) -> do
+			forM_ results $ \(Finished sid) -> do
 				glAttachShader pid sid
 				showError "glAttachShader"
 			glLinkProgram pid
 			showError "glLinkProgram"
-			postLink progname numShaders ref () pid progressLogger
-		sequence_ [glDeleteShader s | Just s <- results]
+			postLink progname numShaders prog pid progressLogger
+		sequence_ [glDeleteShader s | Finished s <- results]
+		return res
 	glLog "---------------"
+	return res
 
-postLink :: String -> Int -> ObjId -> () -> GLuint
-	-> (Int -> String -> Maybe ProgramBinary -> GL ()) -> GL ()
-postLink progname numShaders ref vars pid
+postLink
+	:: String -> Int -> Program p -> GLuint
+	-> (Int -> String -> Maybe ProgramBinary -> GL ())
+	-> GL (Progress [String] (Program p))
+postLink progname numShaders prog pid
 		progressLogger = alloca $ \intptr -> do
 	glGetProgramiv pid c_link_status intptr
 	linkStatus <- peek intptr
@@ -657,17 +717,17 @@ postLink progname numShaders ref vars pid
 		glLog msg
 		progressLogger (numShaders + 1) msg Nothing
 		glDeleteProgram pid
-		writeIORef ref Broken
+		return $ Fixme [msg]
 	else do
 		-- obtain shader variables
 		putStrLn.show=<<getActiveVariables pid
-		--writeIORef vars (,)
-		rev <- readIORef contextRev
+
 		fp <- newForeignPtr nullPtr (glDeleteProgram pid)
-		writeIORef ref $ Ok rev pid fp
+		writeIORef (programGLO prog) (pid, fp)
 		let msg = "Sucessfully linked " ++ progname ++ "!" ++ info'
 		glLog msg
 		progressLogger (numShaders + 1) msg Nothing
+		return . Finished $ prog
 
 c_link_status = 0x8B82
 c_info_log_length = 0x8B84
@@ -691,7 +751,7 @@ loadProgramBinary (Program tf _ ref) pid = do
 loadShader
 	:: (Int -> String -> Maybe ProgramBinary -> GL ())
 	-> (Int, Shader)
-	-> GL (Maybe GLuint)
+	-> GL (Progress [String] GLuint)
 loadShader progressLogger (i, Shader shaderType name bs) = do
 	sid <- glCreateShader shaderType
 	if sid == 0 then do
@@ -699,7 +759,7 @@ loadShader progressLogger (i, Shader shaderType name bs) = do
 		let msg = "Fatal: glCreateShader returned 0."
 		glLog msg
 		progressLogger i msg Nothing
-		return Nothing
+		return $ Fixme [name ++ ": " ++ msg]
 	else do
 		B.useAsCString bs $ \src -> do
 			withArray [src] $ \ptr -> do
@@ -721,12 +781,12 @@ loadShader progressLogger (i, Shader shaderType name bs) = do
 						glLog msg
 						progressLogger i msg Nothing
 						glDeleteShader sid
-						return Nothing
+						return $ Fixme [msg]
 					else do
 						let msg = name ++ " ... done" ++ info'
 						glLog msg
 						progressLogger i msg Nothing
-						return $ Just sid
+						return $ Finished sid
 
 c_compile_status = 0x8B81
 
@@ -767,38 +827,4 @@ c_active_attribute_max_length = 0x8B8A
 c_active_uniforms = 0x8B86
 c_active_attributes = 0x8B89
 
-validateProgram :: Program p -> GL String
-validateProgram prog = alloca $ \intptr -> do
-	Ok _ pid _ <- readIORef $ __pobj prog
-	glValidateProgram pid
-	glGetProgramiv pid c_info_log_length intptr
-	len <- fmap fromIntegral $ peek intptr
-	info <- allocaBytes len $ \buf -> do
-		glGetProgramInfoLog pid (fromIntegral len) nullPtr buf
-		peekCStringLen (buf, len-1)
-	glLog $ "validateProgram:\n" ++ info
-	return info
-
-
--- ** Garbage collection for GPU objects
-
--- | genObj rev objref glGenBuffers glDeleteBuffers
-genObj :: Int -> ObjId -> (GLsizei -> Ptr GLuint -> GL ())
-		-> (GLsizei -> Ptr GLuint -> GL ()) -> GL GLuint
-genObj rev ref genSomeObjs delSomeObjs = do
-	fp <- mallocForeignPtr
-	withForeignPtr fp $ \ptr -> do
-		genSomeObjs 1 ptr
-		showError "genObj"
-		obj <- peek ptr
-		writeIORef ref $ Ok rev obj fp
-		
-		addForeignPtrFinalizer fp $ do
-			currentRev <- readIORef contextRev
-			readIORef ref >>= \case
-				Ok gen obj _ | gen == currentRev -> do
-					with obj $ \ptr -> delSomeObjs 1 ptr
-					showError "delObj"
-				otherwise -> glLog "object killed"
-		return obj
 
