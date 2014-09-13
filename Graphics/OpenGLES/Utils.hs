@@ -1,5 +1,6 @@
 module Graphics.OpenGLES.Utils where
-{--import Data.Array.ST (newArray, getElems, MArray, STUArray)
+{-
+--import Data.Array.ST (newArray, getElems, MArray, STUArray)
 --import Data.Array.Unsafe (castSTUArray)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
@@ -69,7 +70,7 @@ inverseFrustumMatrix (l,r) (b,t) (n,f) = Mat4
 	(Vec4 (0.5*(r+l)/n) (0.5*(t+b)/n) (-1) (0.5*(f+n)/(f*n)))
 
 
-{-
+
 data BufferMarkup = BufferMarkup [String] [String]
 
 packToBlob :: BufferMarkup -> Blob
@@ -96,7 +97,6 @@ vertexColors = BufferMarkup
 	,"-0.7",  "0.7", "FF0000"
 	, "0.7",  "0.7", "00FFFF"
 	]
--}
 
 pureProgram = Program "Graphics.OpenGLES.Utils.pureProgram"
 	[ VertexShader "pureVertexShader" pureVertexShader
@@ -133,7 +133,7 @@ yEqual f from to = [Vec2 x (f x) | x <- [from..to]]
 
 xEqual g from to = [Vec2 (g y) y | y <- [from..to]]
 
-{-
+
 enable :: Capability -> IO ()
 enable = glEnable . marshal
 
@@ -150,7 +150,7 @@ clearBuffer :: Bool -- ^ Clear color buffer
             -> IO ()
 clearBuffer c d s = glClear $ (if d then 0x100 else 0)
   .|. (if s then 0x400 else 0) .|. (if c then 0x4000 else 0)
--}
+
 getGLVendor = glGetString 0x1F00 >>= peekCString
 getGLRenderer = glGetString 0x1F01 >>= peekCString
 getGLVersion = glGetString 0x1F02 >>= peekCString
