@@ -12,11 +12,14 @@
 -----------------------------------------------------------------------------
 
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ImpredicativeTypes #-}
+--{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverlappingInstances #-}
 
 module Graphics.OpenGLES.Core where
 import Control.Applicative
@@ -79,10 +82,11 @@ stopGL = do
 --destroyGL = runGL $ eglMakeCurrent Nothing, eglDestroyXXX ...
 
 endFrameGL :: IO ()
-endFrameGL = runGL $ do
-	readIORef drawOrExit >>= \case
-		Just eglSwapBuffer -> eglSwapBuffer
-		Nothing -> myThreadId >>= killThread
+endFrameGL = withGL go >>= waitFuture >> nop
+	where go = do
+		readIORef drawOrExit >>= \case
+			Just eglSwapBuffer -> eglSwapBuffer
+			Nothing -> myThreadId >>= killThread
 
 runGL :: GL () -> IO ()
 runGL io = writeChan drawQueue io
@@ -166,12 +170,12 @@ glNewBuffer usage elems = do
 	bufferData array_buffer usage (elems * sizeOf (undefined :: a)) nullPtr
 	Buffer usage glo <$> newIORef array
 
-glNewListBuffer
+glLoadList
 	:: forall a. Storable a => BufferUsage
 	-> (Int, Int)
 	-> [a]
 	-> GL (Buffer a)
-glNewListBuffer usage ix xs = do
+glLoadList usage ix xs = do
 	array <- newListArray ix xs
 	glo <- newBuffer
 	withStorableArraySize array $ \size ptr ->
@@ -210,13 +214,12 @@ glRenewBuffer usage elems buf@(Buffer _ _ ref) = do
 	bufferData array_buffer usage (elems * sizeOf (undefined :: a)) nullPtr
 	writeIORef ref array
 
-glRenewListBuffer :: forall a. Storable a =>
+glReloadList :: forall a. Storable a =>
 	BufferUsage -> (Int, Int) -> [a] -> Buffer a -> GL ()
-glRenewListBuffer usage ix xs buf@(Buffer _ _ ref) = do
+glReloadList usage ix xs buf@(Buffer _ _ ref) = do
 	array <- newListArray ix xs
 	bindBuffer array_buffer buf
 	withStorableArraySize array $ \size ptr -> do
-		bufferData array_buffer usage 0 nullPtr
 		bufferData array_buffer usage size ptr
 	writeIORef ref array
 
@@ -228,7 +231,7 @@ glReloadBS usage bs@(B.PS foreignPtr offset len) buf = do
 	let elems = (len `div` sizeOf (undefined :: a))
 	let array = StorableArray 0 (elems-1) elems (castForeignPtr fp)
 	withForeignPtr fp $ \ptr -> do
-		bufferData array_buffer usage 0 nullPtr
+		--bufferData array_buffer usage 0 nullPtr
 		bufferData array_buffer usage len ptr
 
 
@@ -341,7 +344,7 @@ glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 		Nothing -> setVA
 		Just (_, bind, _) -> readIORef vao >>= bind . fst
 	picker mode
-	glValidate prog
+	--glValidate prog
 	return True
 
 -- | See "Graphics.OpenGLES.State"
@@ -524,9 +527,11 @@ instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
 pokeMatrix :: (Transpose a b, Storable b)
 	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
 	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
-pokeMatrix glUniformMatrixV (loc, _, ptr) matrix = do
+pokeMatrix glUniformMatrixV (loc, 1, ptr) matrix = do
 	poke (castPtr ptr :: Ptr b) (transpose matrix)
 	glUniformMatrixV loc 1 0 (castPtr ptr)
+pokeMatrix _ _ _ = return () -- poke to nullPtr
+
 
 instance UnifVal Mat2 where glUniform = pokeMatrix glUniformMatrix2fv
 instance UnifVal Mat3 where glUniform = pokeMatrix glUniformMatrix3fv
@@ -536,9 +541,10 @@ instance UnifVal Mat4 where glUniform = pokeMatrix glUniformMatrix4fv
 pokeMatrixT :: Storable a
 	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
 	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
-pokeMatrixT glUniformMatrixV (loc, _, ptr) matrix = do
+pokeMatrixT glUniformMatrixV (loc, 1, ptr) matrix = do
 	poke (castPtr ptr :: Ptr a) matrix
 	glUniformMatrixV loc 1 1 (castPtr ptr)
+pokeMatrixT _ _ _ = return ()
 
 -- http://delphigl.de/glcapsviewer/gles_extensions.php 
 instance UnifVal Mat2x3 where glUniform = pokeMatrixT glUniformMatrix2x3fv
@@ -581,12 +587,11 @@ instance UnifVal [Mat4x3] where glUniform = pokeMatricesT glUniformMatrix4x3fv
 
 -- ** Vertex Attribute
 
-newtype Attrib p a = Attrib (GLint, GLsizei, GLboolean, Int)
--- (location, size, normalize, divisor)
+newtype Attrib p a = Attrib (GLuint, GLsizei, GLboolean, GLuint) deriving Show
+-- (index, size, normalize, divisor)
 -- normalized color `divisor` 1 $= buffer
-
 attrib
-	:: forall p a. (AttrStruct a, Typeable p)
+	:: forall p a. (ShaderAttribute a, Typeable p)
 	=> GLName -> IO (Attrib p a)
 attrib name = do
 	desc <- lookupVarDesc typ
@@ -599,26 +604,58 @@ attrib name = do
 	where
 		typ = typeRep (undefined :: Program p)
 		errmsg = "Attribute not found: " ++ name ++ " (" ++ show typ ++ ")"
-		validateType (loc, size, gltyp) = return $ Attrib (loc, size, 0, 0)
+		validateType (loc, size, gltyp) =
+			return $ Attrib (fromIntegral loc, size, 0, 0)
 
 normalized :: Attrib p a -> Attrib p a
-normalized (Attrib (n, s, _, d)) = Attrib (n, s, 1, d)
+normalized (Attrib (i, s, 0, d)) = Attrib (i, s, 1, d)
+normalized _ = error "inapplicable use of 'normalized'"
 
-class AttrStruct a where
-	glAttrib :: GLint -> GLboolean -> Buffer a -> IO ()
+divisor :: Attrib p a -> Word32 -> Attrib p a
+divisor (Attrib (i, s, n, _)) d = Attrib (i, s, n, d)
+
+class Storable b => AttrStruct b a where
+	glVertexAttribPtr :: a -> Buffer b -> SetVertexAttr p
 
 type SetVertexAttr p = GL ()
+
+instance Typeable p => AttrStruct Float (Attrib p Float) where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $
+			glVertexAttribDivisor idx divisor
+		-- XXX 3.1 spec says normalize is ignored for floating-point types, really?
+		glVertexAttribPointer idx 1 (glType buf) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance Typeable p => AttrStruct Vec2 (Attrib p Vec2) where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Float])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance Typeable p => AttrStruct (V2 Word8) (Attrib p Vec2) where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+
+--(GLuint indx, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* ptr)
+
 --($=) :: Attrib p a -> Buffer a -> SetVertexAttr p
 --Attrib loc 2 $= buf = glVertexAttribIPointer
 --Attrib loc norm $= buf = do
 --	glBindBuffer c_array_buffer =<< getBufId buf
 --	4eachstruct:
 --	glVertexAttribPointer loc size typ norm stride (idToPtr id)
+(&=) :: AttrStruct b a => a -> Buffer b -> GL ()
+attrib &= buf = do
+	bindBuffer array_buffer buf
+	glVertexAttribPtr attrib buf
 
 newtype VertexArray p = VertexArray (GLO, GL ())
 -- (glo, init)
 
--- TOOD: glDisableVertexAttribArray
 glVA :: [SetVertexAttr p] -> GL (VertexArray p)
 glVA attrs = do
 	let setVA = sequence_ attrs
@@ -627,6 +664,87 @@ glVA attrs = do
 		Just (gen, bind, del) ->
 			newGLO gen bind del <* setVA
 	return $ VertexArray (glo, setVA)
+
+
+-- *** Constant Vertex Attribute
+
+class (Num a, Storable a) => GenericVertexAttribute a where
+	glVertexAttrib4v :: GLuint -> Ptr (V4 a) -> GL ()
+instance GenericVertexAttribute Float where
+	glVertexAttrib4v idx = glVertexAttrib4fv idx . castPtr
+instance GenericVertexAttribute Int32 where
+	glVertexAttrib4v idx = glVertexAttribI4iv idx . castPtr
+instance GenericVertexAttribute Word32 where
+	glVertexAttrib4v idx = glVertexAttribI4uiv idx . castPtr
+
+class ShaderAttribute a where
+	glVertexAttrib :: GLuint -> a -> GL ()
+
+instance GenericVertexAttribute a => ShaderAttribute a where
+	glVertexAttrib idx x = with (V4 x 0 0 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V2 a) where
+	glVertexAttrib idx (V2 x y) = with (V4 x y 0 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V3 a) where
+	glVertexAttrib idx (V3 x y z) = with (V4 x y z 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V4 a) where
+	glVertexAttrib idx v4 = with v4 $ glVertexAttrib4v idx
+instance ShaderAttribute Mat2 where
+	glVertexAttrib idx (M2 (V2 a b) (V2 c d)) = do
+		with (V4 a c 0 1) $ glVertexAttrib4v idx
+		with (V4 b d 0 1) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat3 where
+	glVertexAttrib idx (M3 (V3 a b c) (V3 d e f) (V3 g h i)) = do
+		with (V4 a d g 1) $ glVertexAttrib4v idx
+		with (V4 b e h 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f i 1)  $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat4 where
+	glVertexAttrib idx (M4 (V4 a b c d) (V4 e f g h) (V4 i j k l) (V4 m n o p)) = do
+		with (V4 a e i m) $ glVertexAttrib4v idx
+		with (V4 b f j n) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g k o) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h l p) $ glVertexAttrib4v (idx + 3)
+-- XXX I'm not sure below types are actually supported by the GL
+instance ShaderAttribute Mat3x2 where
+	glVertexAttrib idx (M3x2 a b  c d  e f) = do
+		with (V4 a c e 1) $ glVertexAttrib4v idx
+		with (V4 b d f 1) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat4x2 where
+	glVertexAttrib idx (M4x2 a b  c d  e f  g h) = do
+		with (V4 a c e g) $ glVertexAttrib4v idx
+		with (V4 b d f h) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat2x3 where
+	glVertexAttrib idx (M2x3 a b c  d e f) = do
+		with (V4 a d 0 1) $ glVertexAttrib4v idx
+		with (V4 b e 0 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f 0 1) $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat4x3 where
+	glVertexAttrib idx (M4x3 a b c  d e f  g h i  j k l) = do
+		with (V4 a d g j) $ glVertexAttrib4v idx
+		with (V4 b e h k) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f i l) $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat2x4 where
+	glVertexAttrib idx (M2x4 a b c d  e f g h) = do
+		with (V4 a e 0 1) $ glVertexAttrib4v idx
+		with (V4 b f 0 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g 0 1) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h 0 1) $ glVertexAttrib4v (idx + 3)
+instance ShaderAttribute Mat3x4 where
+	glVertexAttrib idx (M3x4 a b c d  e f g h  i j k l) = do
+		with (V4 a e i 1) $ glVertexAttrib4v idx
+		with (V4 b f j 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g k 1) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h l 1) $ glVertexAttrib4v (idx + 3)
+
+constAttrib :: ShaderAttribute a => Attrib p a -> a -> SetVertexAttr p
+constAttrib (Attrib (idx, s, n, d)) val = do
+	glDisableVertexAttribArray idx
+	glVertexAttrib idx val
+
+--withConstAttr :: Attrib p a -> GL b -> GL b
+--withConstAttr (Attrib (idx, _, _, _)) io = do
+--	glDisableVertexAttribArray idx
+--	result <- io
+--	glEnableVertexAttribArray idx
 
 
 -- ** Vertex Picker
@@ -882,7 +1000,7 @@ postLink progname numShaders prog pid
 		putStrLn . show $ vars
 		fp <- newForeignPtr nullPtr (glDeleteProgram pid)
 		writeIORef (programGLO prog) (pid, fp)
-		let msg = "Sucessfully linked " ++ progname ++ "!" ++ info'
+		let msg = "Successfully linked " ++ progname ++ "!" ++ info'
 		glLog msg
 		progressLogger (numShaders + 1) msg Nothing
 		let prog' = prog { programVariables = vars }
@@ -983,6 +1101,7 @@ getActiveVariables pid = do
 		loc <- glGetAttribLocation pid str
 		size <- peek sptr
 		typ <- peek tptr
+		putStrLn . show $ (index, loc)
 		return (name, (loc, size, typ))
 	free str; free sptr; free tptr
 	return (uniforms, attribs)

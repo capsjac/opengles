@@ -28,8 +28,7 @@ library
     Graphics.OpenGLES,
     Graphics.OpenGLES.Base,
     Graphics.OpenGLES.Core,
-    Graphics.OpenGLES.Env,
-    Graphics.OpenGLES.Utils
+    Graphics.OpenGLES.Env
   
   other-extensions: ForeignFunctionInterface
   extra-libraries: EGL
@@ -39,7 +38,8 @@ library
     vect >= 0.4 && < 0.5,
     ghc-prim,
     array >= 0.5 && < 0.6,
-    future-resource >=0.3
+    future-resource >= 0.3,
+    linear-vect >= 0.1
   
   include-dirs: include
   

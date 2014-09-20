@@ -1,4 +1,4 @@
--- Draw configurations on Rasterization and Per-Fragment Operations.
+-- |  Draw configurations on Rasterization and Per-Fragment Operations.
 -- Note: Graphic state is sticky.
 module Graphics.OpenGLES.State where
 import Data.Int
@@ -16,7 +16,18 @@ begin (Capability cap) = glEnable cap
 end :: Capability -> GL ()
 end (Capability cap) = glDisable cap
 
-newtype Capability = Capability GLenum deriving Showculling = Capability 0x0B44blend = Capability 0x0BE2dither = Capability 0x0BD0stencilTest = Capability 0x0B90depthTest = Capability 0x0B71scissorTest = Capability 0x0C11polygonOffsetFill = Capability 0x8037sampleAlphaToCoverage = Capability 0x809EmultisampleCoverage = Capability 0x80A0primitiveRestartFixedIndex = Capability 0x8D69rasterizerDiscard = Capability 0x8C89
+newtype Capability = Capability GLenum deriving Show
+culling = Capability 0x0B44
+blend = Capability 0x0BE2
+dither = Capability 0x0BD0
+stencilTest = Capability 0x0B90
+depthTest = Capability 0x0B71
+scissorTest = Capability 0x0C11
+polygonOffsetFill = Capability 0x8037
+sampleAlphaToCoverage = Capability 0x809E
+multisampleCoverage = Capability 0x80A0
+primitiveRestartFixedIndex = Capability 0x8D69
+rasterizerDiscard = Capability 0x8C89
 
 lineWidth :: Float -> GL ()
 lineWidth = glLineWidth
