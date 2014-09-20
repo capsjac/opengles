@@ -16,6 +16,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
 
 module Graphics.OpenGLES.Core where
 import Control.Applicative
@@ -38,7 +39,7 @@ import Foreign.Concurrent (newForeignPtr, addForeignPtrFinalizer)
 -- GHC only   ^^^^^^^^^^
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
-import Linear
+import Graphics.OpenGLES.Types
 import System.IO.Unsafe (unsafePerformIO)
 
 
@@ -68,7 +69,7 @@ stopGL :: IO ()
 stopGL = do
 	putStrLn "stopGL"
 	writeIORef drawOrExit Nothing
-			let waitGLThread = readIORef drawOrExit >>= \case
+	let waitGLThread = readIORef drawOrExit >>= \case
 		Just _ -> nop
 		Nothing -> waitGLThread
 	waitGLThread
@@ -82,11 +83,13 @@ endFrameGL = runGL $ do
 	readIORef drawOrExit >>= \case
 		Just eglSwapBuffer -> eglSwapBuffer
 		Nothing -> myThreadId >>= killThread
-		runGL :: GL () -> IO ()
+
+runGL :: GL () -> IO ()
 runGL io = writeChan drawQueue io
 
 --runGLRes :: GL () -> IO ()
 --runGLRes io = forkOS
+
 withGL :: GL a -> IO (Future' a)
 withGL io = asyncIO $ \update -> runGL (io >>= update . Finished)
 
@@ -147,7 +150,7 @@ genObj ref genObjs bindObj delObjs = do
 		showError "genObj"
 		obj <- peek ptr
 		writeIORef ref (obj, fp)
-				addForeignPtrFinalizer fp $ do
+		addForeignPtrFinalizer fp $ do
 			(obj, _) <- readIORef ref
 			with obj $ \ptr -> do
 				delObjs 1 ptr
@@ -165,7 +168,8 @@ glNewBuffer usage elems = do
 
 glNewListBuffer
 	:: forall a. Storable a => BufferUsage
-	-> (Int, Int)	-> [a]
+	-> (Int, Int)
+	-> [a]
 	-> GL (Buffer a)
 glNewListBuffer usage ix xs = do
 	array <- newListArray ix xs
@@ -226,7 +230,6 @@ glReloadBS usage bs@(B.PS foreignPtr offset len) buf = do
 	withForeignPtr fp $ \ptr -> do
 		bufferData array_buffer usage 0 nullPtr
 		bufferData array_buffer usage len ptr
-
 
 
 newtype BufferUsage = BufferUsage GLenum
@@ -339,7 +342,9 @@ glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 		Just (_, bind, _) -> readIORef vao >>= bind . fst
 	picker mode
 	glValidate prog
-	return True-- | See "Graphics.OpenGLES.State"
+	return True
+
+-- | See "Graphics.OpenGLES.State"
 type GraphicsState = GL ()
 
 
@@ -379,32 +384,37 @@ data Program p = Program
 	{ programGLO :: GLO
 	, programTF :: TransformFeedback
 	, programShaders :: [Shader]
-	, programVariables :: [()]
+	, programVariables :: ([GLVarDesc], [GLVarDesc])
 	} deriving Show
 
 type ProgramBinary = B.ByteString
+-- | name: (location, length of array, type)
+type GLVarDesc = (String, (GLint, GLsizei, GLenum))
 
+
+-- 
 glCompile
 	:: Typeable p
 	=> TransformFeedback
 	-> [Shader]
 	-> (Program p -> Int -> String -> Maybe ProgramBinary -> GL ())
-									-> GL (Progress [String] (Program p))
+	-> GL (Progress [String] (Program p))
 glCompile tf shaders progressLogger = do
 	glo <- newIORef undefined
-	let prog = Program glo tf shaders []
+	let prog = Program glo tf shaders ([],[])
 	loadProgram prog (progressLogger prog)
 
 data TransformFeedback =
-		  NoFeedback
-		| FeedbackArrays [String]
-		| FeedbackPacked [String]
+	  NoFeedback
+	| FeedbackArrays [String]
+	| FeedbackPacked [String]
 	deriving Show
 
 -- 
 --glCompile :: Typeable p => Program p
 --         -> (Program p -> Int -> String -> Maybe ProgramBinary -> GL ())
-                     -- | glValidateProgram checks to see whether the executables contained in
+
+-- | glValidateProgram checks to see whether the executables contained in
 -- program can execute given the current OpenGL state.
 glValidate :: Program p -> GL String
 glValidate prog = alloca $ \intptr -> do
@@ -415,7 +425,7 @@ glValidate prog = alloca $ \intptr -> do
 	info <- allocaBytes len $ \buf -> do
 		glGetProgramInfoLog pid (fromIntegral len) nullPtr buf
 		peekCStringLen (buf, len-1)
-	glLog $ "validateProgram:\n" ++ info
+	glLog $ "validateProgram: " ++ info
 	return info
 
 
@@ -429,43 +439,170 @@ glValidate prog = alloca $ \intptr -> do
 --instance AttrStruct a => GLVar Attrib Buffer a where
 --	attr $= value = attr $- buffer "tmp" value
 --	attr $- buffer = (coerce attr, coerce buffer)
+
 type UniformAssignment p = GL ()
 
---UnifVal a => (Uniform p a, a)
-newtype Uniform p a = Uniform GLint
+-- UnifVal a => (Uniform p a, a)
+-- UnifStruct a => (UniformBlock p a, Buffer a)
+-- GLStruct? std130?
+newtype Uniform p a = Uniform (GLint, GLsizei, Ptr ())
+-- (location, length of array or 1, ptr)
 
-uniform :: UnifVal a => GLName -> IO (Uniform p a)
-uniform name = return $ Uniform 0
---withCString name (glGetUniformLocation prog)
+uniform
+	:: forall p a. (UnifVal a, Typeable p)
+	=> GLName -> IO (Uniform p a)
+uniform name = do
+	desc <- lookupVarDesc typ
+	case desc of
+		Nothing -> return $ Uniform (-1, 0, nullPtr)
+		Just (unifs, _) ->
+			case lookup name unifs of
+				Just unif -> validateType unif
+				Nothing -> glLog errmsg >> return (Uniform (-1, 0, nullPtr))
+	where
+		typ = typeRep (undefined :: Program p)
+		errmsg = "Uniform not found: " ++ name ++ " (" ++ show typ ++ ")"
+		validateType (loc, size, gltyp) = do
+			-- Prevent drawtime allocation (it leaks, though)
+			ptr <- mallocArray (fromIntegral size) :: IO (Ptr Float)
+			return $ Uniform (loc, size, castPtr ptr)
 
+($=) :: UnifVal a => Uniform p a -> a -> UniformAssignment p
+Uniform desc $= value = glUniform desc value
 
 class UnifVal a where
-	glUniform :: GLint -> a -> IO ()
-instance UnifVal Float where glUniform = glUniform1f
---instance UnifVal Vec2 where glUniform = glUniform2f
---instance UnifVal Vec3 where glUniform = glUniform3f
---instance UnifVal Vec4 where glUniform = glUniform4f
+	glUniform :: (GLint, GLsizei, Ptr ()) -> a -> GL ()
+
+--instance UnifVal Float where
+--	glUniform (loc, _, _) x = glUniform1f loc x
+
+#define Uniform(_typ, _arg, _suffix, _rhs) \
+instance UnifVal (_typ) where \
+	glUniform (loc, _, _) _arg = glUniform/**/_suffix loc _rhs \
+
+Uniform(Float,x,1f,x)
+Uniform(Vec2,(V2 x y),2f,x y)
+Uniform(Vec3,(V3 x y z),3f,x y z)
+Uniform(Vec4,(V4 x y z w),4f,x y z w)
+Uniform(Int32,x,1i,x)
+Uniform(IVec2,(V2 x y),2i,x y)
+Uniform(IVec3,(V3 x y z),3i,x y z)
+Uniform(IVec4,(V4 x y z w),4i,x y z w)
+Uniform(Word32,x,1ui,x)
+Uniform(UVec2,(V2 x y),2ui,x y)
+Uniform(UVec3,(V3 x y z),3ui,x y z)
+Uniform(UVec4,(V4 x y z w),4ui,x y z w)
+
+--instance UnifVal [Float] where
+--	glUniform (loc, len, ptr) values = do
+--		let len' = fromIntegral len
+--		pokeArray (castPtr ptr :: Ptr Float) (take len' values)
+--		glUniform1fv loc len (castPtr ptr)
+
+pokeUniformArray
+	:: Storable b => (GLint -> GLsizei -> Ptr a -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [b] -> GL ()
+pokeUniformArray glUniformV (loc, len, ptr) values = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr b) (take len' values)
+	glUniformV loc len (castPtr ptr)
+
+instance UnifVal [Float] where glUniform = pokeUniformArray glUniform1fv
+instance UnifVal [Vec2] where glUniform = pokeUniformArray glUniform2fv
+instance UnifVal [Vec3] where glUniform = pokeUniformArray glUniform3fv
+instance UnifVal [Vec4] where glUniform = pokeUniformArray glUniform4fv
+instance UnifVal [Int32] where glUniform = pokeUniformArray glUniform1iv
+instance UnifVal [IVec2] where glUniform = pokeUniformArray glUniform2iv
+instance UnifVal [IVec3] where glUniform = pokeUniformArray glUniform3iv
+instance UnifVal [IVec4] where glUniform = pokeUniformArray glUniform4iv
+instance UnifVal [Word32] where glUniform = pokeUniformArray glUniform1uiv
+instance UnifVal [UVec2] where glUniform = pokeUniformArray glUniform2uiv
+instance UnifVal [UVec3] where glUniform = pokeUniformArray glUniform3uiv
+instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
+
+-- 'transpose' argument must be GL_FALSE in GL ES 2.0
+pokeMatrix :: (Transpose a b, Storable b)
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
+pokeMatrix glUniformMatrixV (loc, _, ptr) matrix = do
+	poke (castPtr ptr :: Ptr b) (transpose matrix)
+	glUniformMatrixV loc 1 0 (castPtr ptr)
+
+instance UnifVal Mat2 where glUniform = pokeMatrix glUniformMatrix2fv
+instance UnifVal Mat3 where glUniform = pokeMatrix glUniformMatrix3fv
+instance UnifVal Mat4 where glUniform = pokeMatrix glUniformMatrix4fv
+
+-- GL ES 3.0+ supports transpose
+pokeMatrixT :: Storable a
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
+pokeMatrixT glUniformMatrixV (loc, _, ptr) matrix = do
+	poke (castPtr ptr :: Ptr a) matrix
+	glUniformMatrixV loc 1 1 (castPtr ptr)
+
+-- http://delphigl.de/glcapsviewer/gles_extensions.php 
+instance UnifVal Mat2x3 where glUniform = pokeMatrixT glUniformMatrix2x3fv
+instance UnifVal Mat2x4 where glUniform = pokeMatrixT glUniformMatrix2x4fv
+instance UnifVal Mat3x2 where glUniform = pokeMatrixT glUniformMatrix3x2fv
+instance UnifVal Mat3x4 where glUniform = pokeMatrixT glUniformMatrix3x4fv
+instance UnifVal Mat4x2 where glUniform = pokeMatrixT glUniformMatrix4x2fv
+instance UnifVal Mat4x3 where glUniform = pokeMatrixT glUniformMatrix4x3fv
+
+-- 'transpose' argument must be GL_FALSE in GL ES 2.0
+pokeMatrices :: (Transpose a b, Storable b)
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
+pokeMatrices glUniformMatrixV (loc, len, ptr) matrices = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr b)
+		(map transpose $ take len' matrices) -- maybe slow
+	glUniformMatrixV loc len 0 (castPtr ptr)
+
+instance UnifVal [Mat2] where glUniform = pokeMatrices glUniformMatrix2fv
+instance UnifVal [Mat3] where glUniform = pokeMatrices glUniformMatrix3fv
+instance UnifVal [Mat4] where glUniform = pokeMatrices glUniformMatrix4fv
+
+-- GL ES 3.0+ supports transpose
+pokeMatricesT :: Storable a
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
+pokeMatricesT glUniformMatrixV (loc, len, ptr) matrices = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr a) (take len' matrices)
+	glUniformMatrixV loc len 1 (castPtr ptr)
+
+instance UnifVal [Mat2x3] where glUniform = pokeMatricesT glUniformMatrix2x3fv
+instance UnifVal [Mat2x4] where glUniform = pokeMatricesT glUniformMatrix2x4fv
+instance UnifVal [Mat3x2] where glUniform = pokeMatricesT glUniformMatrix3x2fv
+instance UnifVal [Mat3x4] where glUniform = pokeMatricesT glUniformMatrix3x4fv
+instance UnifVal [Mat4x2] where glUniform = pokeMatricesT glUniformMatrix4x2fv
+instance UnifVal [Mat4x3] where glUniform = pokeMatricesT glUniformMatrix4x3fv
 
 
 -- ** Vertex Attribute
 
-newtype Attrib p a = Attrib (GLint, GLboolean, Int)
--- (location, normalize, divisor)
+newtype Attrib p a = Attrib (GLint, GLsizei, GLboolean, Int)
+-- (location, size, normalize, divisor)
 -- normalized color `divisor` 1 $= buffer
 
-attrib :: AttrStruct a => Program p -> GLName -> IO (Attrib p a)
-attrib prog name = return $ Attrib (0, 0, 0)
-	{-readIORef (_pobj prog) >>= \case
-		Ok generation id -> if ...
-			withCString name (glGetAttribLocation prog)
-			typecheck...
-			Attrib (loc, 0)
-		Unused -> glCompile ...
-		Making -> wait...
-		Broken -> return $ Attrib (name, 0)-}
+attrib
+	:: forall p a. (AttrStruct a, Typeable p)
+	=> GLName -> IO (Attrib p a)
+attrib name = do
+	desc <- lookupVarDesc typ
+	case desc of
+		Nothing -> return $ Attrib (-1, 0, 0, 0)
+		Just (_, attrs) ->
+			case lookup name attrs of
+				Just attr -> validateType attr
+				Nothing -> glLog errmsg >> return (Attrib (-1, 0, 0, 0))
+	where
+		typ = typeRep (undefined :: Program p)
+		errmsg = "Attribute not found: " ++ name ++ " (" ++ show typ ++ ")"
+		validateType (loc, size, gltyp) = return $ Attrib (loc, size, 0, 0)
 
 normalized :: Attrib p a -> Attrib p a
-normalized (Attrib (n, _, d)) = Attrib (n, 1, d)
+normalized (Attrib (n, s, _, d)) = Attrib (n, s, 1, d)
 
 class AttrStruct a where
 	glAttrib :: GLint -> GLboolean -> Buffer a -> IO ()
@@ -481,6 +618,7 @@ type SetVertexAttr p = GL ()
 newtype VertexArray p = VertexArray (GLO, GL ())
 -- (glo, init)
 
+-- TOOD: glDisableVertexAttribArray
 glVA :: [SetVertexAttr p] -> GL (VertexArray p)
 glVA attrs = do
 	let setVA = sequence_ attrs
@@ -556,7 +694,7 @@ byIndices buf list =
 		forM_ list $ \(first, count) -> do
 			glDrawElements mode count typ (sizePtr $ first * stride)
 			showError "glDrawElements[]"
-				--withFirstCountArray list $ \cptr iptr clen -> do
+		--withFirstCountArray list $ \cptr iptr clen -> do
 		--	glMultiDrawElementsEXT mode cptr typ iptr (clen * stride)
 		--	showError "glMultiDrawElementsEXT"
 -- ByIndicesRaw (Buffer w) (Buffer Word32) (Buffer Word32)
@@ -581,7 +719,7 @@ drawCallSequence xs =
 
 -- * Other Operations
 
--- 
+-- |
 -- > glClean [] colorBuffer
 -- > glClean [bindFramebuffer buf] (colorBuffer+depthBuffer)
 glClean
@@ -607,6 +745,7 @@ nop = return ()
 
 -- * Internal
 
+-- [MainThread, GLThread]
 -- if Nothing, main GL thread should stop before the next frame.
 drawOrExit :: IORef (Maybe (GL ())) -- eglSwapBuffer inside
 drawOrExit = unsafePerformIO $ newIORef Nothing
@@ -637,7 +776,7 @@ getError = unMarshal <$> glGetError
 		0x0506 -> Just InvalidFrameBufferOperation
 
 showError :: String -> GL ()
-showError location =
+showError location = putStrLn location >>
 	getError >>= maybe nop
 		(\err -> glLog $ location ++ ": " ++ show err)
 
@@ -651,23 +790,41 @@ instance Show GLO where
 
 -- ** Garbage collection for GPU objects
 
+
 sizePtr :: Int32 -> Ptr ()
 sizePtr = intPtrToPtr . fromIntegral
 
 -- glRestoreLostObjects :: GL ()
 -- saveBuffer :: Buffer -> IO ()
--- saveBuffer buf = atomicModifyIORef (buf:) bufferArchive
+-- saveBuffer buf = atomicModifyIORef' (buf:) bufferArchive
 -- bufferArchive = unsafePerformIO $ newIORef []
 
 
 -- ** Loading Shaders
+
+-- binaryStore :: IORef [(String, B.ByteString)]
+-- or (FilePath -> IO B.ByteString)
+-- binaryStore = unsafePerformIO $ newIORef []
+
+programDict :: IORef [(String, Program ())]
+programDict = unsafePerformIO $ newIORef []
+
+lookupVarDesc :: TypeRep -> IO (Maybe ([GLVarDesc], [GLVarDesc]))
+lookupVarDesc rep = do
+	let name = show rep
+	entry <- lookup name <$> readIORef programDict
+	case entry of
+		Nothing -> do
+			glLog $ "Program '" ++ name ++ "' is not compiled."
+			return Nothing
+		Just prog -> return $ Just (programVariables prog)
 
 loadProgram
 	:: Typeable p
 	=> Program p
 	-> (Int -> String -> Maybe ProgramBinary -> GL ())
 	-> GL (Progress [String] (Program p))
-loadProgram prog@(Program glo tf shaders []) progressLogger = do
+loadProgram prog@(Program glo tf shaders ([],[])) progressLogger = do
 	let numShaders = length shaders
 	let progname = show (typeRep prog)
 	let msg = "Start compiling: " ++ progname
@@ -681,7 +838,7 @@ loadProgram prog@(Program glo tf shaders []) progressLogger = do
 		progressLogger (numShaders + 1) msg Nothing
 		return $ Fixme [msg]
 	else do
-				results <- mapM (loadShader progressLogger) (zip [1..] shaders)
+		results <- mapM (loadShader progressLogger) (zip [1..] shaders)
 		-- putStrLn $ show results
 		let errors = [msg | Fixme [msg] <- results]
 		res <- if errors /= []
@@ -699,7 +856,8 @@ loadProgram prog@(Program glo tf shaders []) progressLogger = do
 	return res
 
 postLink
-	:: String -> Int -> Program p -> GLuint
+	:: Typeable p
+	=> String -> Int -> Program p -> GLuint
 	-> (Int -> String -> Maybe ProgramBinary -> GL ())
 	-> GL (Progress [String] (Program p))
 postLink progname numShaders prog pid
@@ -720,14 +878,17 @@ postLink progname numShaders prog pid
 		return $ Fixme [msg]
 	else do
 		-- obtain shader variables
-		putStrLn.show=<<getActiveVariables pid
-
+		vars <- getActiveVariables pid
+		putStrLn . show $ vars
 		fp <- newForeignPtr nullPtr (glDeleteProgram pid)
 		writeIORef (programGLO prog) (pid, fp)
 		let msg = "Sucessfully linked " ++ progname ++ "!" ++ info'
 		glLog msg
 		progressLogger (numShaders + 1) msg Nothing
-		return . Finished $ prog
+		let prog' = prog { programVariables = vars }
+		atomicModifyIORef' programDict $! \xs ->
+			((show (typeRep prog), prog'):xs, ())
+		return $ Finished prog'
 
 c_link_status = 0x8B82
 c_info_log_length = 0x8B84
@@ -760,37 +921,36 @@ loadShader progressLogger (i, Shader shaderType name bs) = do
 		glLog msg
 		progressLogger i msg Nothing
 		return $ Fixme [name ++ ": " ++ msg]
-	else do
-		B.useAsCString bs $ \src -> do
-			withArray [src] $ \ptr -> do
-				glShaderSource sid 1 ptr nullPtr
-				showError "glShaderSource"
-				glCompileShader sid
-				showError "glCompileShader"
-				alloca $ \pint -> do
-					glGetShaderiv sid c_compile_status pint
-					compiled <- peek pint
-					glGetShaderiv sid c_info_log_length pint
-					len <- fmap fromIntegral $ peek pint
-					info <- allocaBytes len $ \buf -> do
-						glGetShaderInfoLog sid (fromIntegral len) nullPtr buf
-						peekCStringLen (buf, len-1)
-					let info' = if info == "" then "" else '\n':info
-					if compiled == 0 then do
-						let msg = "Could not compile " ++ name ++ info'
-						glLog msg
-						progressLogger i msg Nothing
-						glDeleteShader sid
-						return $ Fixme [msg]
-					else do
-						let msg = name ++ " ... done" ++ info'
-						glLog msg
-						progressLogger i msg Nothing
-						return $ Finished sid
+	else B.useAsCString bs $ \src -> do
+		withArray [src] $ \ptr -> do
+			glShaderSource sid 1 ptr nullPtr
+			showError "glShaderSource"
+			glCompileShader sid
+			showError "glCompileShader"
+			alloca $ \pint -> do
+				glGetShaderiv sid c_compile_status pint
+				compiled <- peek pint
+				glGetShaderiv sid c_info_log_length pint
+				len <- fmap fromIntegral $ peek pint
+				info <- allocaBytes len $ \buf -> do
+					glGetShaderInfoLog sid (fromIntegral len) nullPtr buf
+					peekCStringLen (buf, len-1)
+				let info' = if info == "" then "" else '\n':info
+				if compiled == 0 then do
+					let msg = "Could not compile " ++ name ++ info'
+					glLog msg
+					progressLogger i msg Nothing
+					glDeleteShader sid
+					return $ Fixme [msg]
+				else do
+					let msg = name ++ " ... done" ++ info'
+					glLog msg
+					progressLogger i msg Nothing
+					return $ Finished sid
 
 c_compile_status = 0x8B81
 
---getActiveVariables :: GLuint -> GL []
+getActiveVariables :: GLuint -> GL ([GLVarDesc], [GLVarDesc])
 getActiveVariables pid = do
 	sptr <- malloc
 	glGetProgramiv pid c_active_uniform_max_length sptr
@@ -801,24 +961,29 @@ getActiveVariables pid = do
 	str <- mallocBytes (fromIntegral maxlen)
 	
 	glGetProgramiv pid c_active_uniforms sptr
-	numU <- fromIntegral <$> peek sptr
+	numU <- peek sptr
 	glGetProgramiv pid c_active_attributes sptr
-	numA <- fromIntegral <$> peek sptr
+	numA <- peek sptr
 	
 	tptr <- malloc
 	uniforms <- forM [0..numU-1] $ \ index -> do
-		glGetActiveUniform pid index maxlen nullPtr sptr tptr str
+		-- avoid [0..maxBound] bug
+		let i = (fromIntegral :: GLint -> GLuint) index
+		glGetActiveUniform pid i maxlen nullPtr sptr tptr str
 		name <- peekCString str
+		loc <- glGetUniformLocation pid str
 		size <- peek sptr
 		typ <- peek tptr
-		return (name, size, typ)
+		return (name, (loc, size, typ))
 	
 	attribs <- forM [0..numA-1] $ \index -> do
-		glGetActiveAttrib pid index maxlen nullPtr sptr tptr str
+		let i = fromIntegral index
+		glGetActiveAttrib pid i maxlen nullPtr sptr tptr str
 		name <- peekCString str
+		loc <- glGetAttribLocation pid str
 		size <- peek sptr
 		typ <- peek tptr
-		return (name, size, typ)
+		return (name, (loc, size, typ))
 	free str; free sptr; free tptr
 	return (uniforms, attribs)
 
