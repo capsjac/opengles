@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP #-}
 -- | definition from gl3.h
 module Graphics.OpenGLES.Base (
+	-- * Basic Types
 	GL,
 	GLName,
+	-- ** OpenGL ES 2.0
 	GLboolean,
 	GLbyte,
 	GLubyte,
@@ -19,11 +21,16 @@ module Graphics.OpenGLES.Base (
 	GLbitfield,
 	GLfloat,
 	GLclampf,
+	-- ** OpenGL ES 3.0
 	GLint64,
 	GLuint64,
 	GLsync,
 	GLhalf,
+
+	-- * Bindings
 	--isGLProcAvailable,
+
+	-- ** OpenGL ES 2.0
 	glActiveTexture,
 	glAttachShader,
 	glBindAttribLocation,
@@ -167,6 +174,7 @@ module Graphics.OpenGLES.Base (
 	glVertexAttribPointer,
 	glViewport,
 
+	-- ** OpenGL ES 3.0
 	glReadBuffer,
 	glDrawRangeElements,
 	glTexImage3D,
@@ -272,6 +280,7 @@ module Graphics.OpenGLES.Base (
 	glTexStorage3D,
 	glGetInternalformativ,
 
+	-- ** Extensions
 	glDrawTexiOES,
 	glMultiDrawArraysEXT,
 	glMultiDrawElementsEXT,
@@ -280,6 +289,7 @@ module Graphics.OpenGLES.Base (
 	glDeleteVertexArraysOES,
 	glIsVertexArrayOES,
 
+	-- ** OpenGL ES 3.1
 	glDispatchCompute,
 	glDispatchComputeIndirect,
 	glDrawArraysIndirect,
@@ -426,7 +436,7 @@ type GLsync = Ptr ()
 type GLhalf = Word16
 
 
--- * Wrappers
+-- * Bindings
 
 {-isGLProcAvailable :: String -> Bool
 isGLProcAvailable name = let
@@ -713,6 +723,7 @@ GL_EXT(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsi
 GL_EXT(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> GL ())
 
 -- ** Extensions
+
 GL_EXT(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> GL ())
 GL_EXT(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> GL ())
 GL_EXT(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> GL ())
@@ -722,6 +733,7 @@ GL_DUP(glGenVertexArraysOES,glGenVertexArrays, GLsizei -> Ptr GLuint -> GL ())
 GL_DUP(glIsVertexArrayOES,glIsVertexArray, GLuint -> GL GLboolean)
 
 -- ** OpenGL ES 3.1
+
 GL_EXT(glDispatchCompute, GLuint -> GLuint -> GLuint -> GL ())
 GL_EXT(glDispatchComputeIndirect, GLintptr -> GL ())
 GL_EXT(glDrawArraysIndirect, GLenum -> Ptr () -> GL ())
