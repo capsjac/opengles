@@ -1,11 +1,52 @@
--- |  Draw configurations on Rasterization and Per-Fragment Operations.
+-- | Draw configurations on Rasterization and Per-Fragment Operations.
 -- Note: Graphic state is sticky.
-module Graphics.OpenGLES.State where
+module Graphics.OpenGLES.State (
+  -- * Graphics State
+  lineWidth, polygonOffset, scissor,
+  sampleCoverage,
+  -- ** Capability
+  begin, end,
+  Capability,
+  culling,
+  blend,
+  dither,
+  stencilTest,
+  depthTest,
+  scissorTest,
+  polygonOffsetFill,
+  sampleAlphaToCoverage,
+  multisampleCoverage,
+  primitiveRestartFixedIndex,
+  rasterizerDiscard,
+  -- ** Cull Face
+  cullFace, frontFace,
+  CullFace, hideFront, hideBack, hidePolygons,
+  -- ** Stencil
+  stencilFunc, stencilFuncSeparate,
+  stencilOp, stencilOpSeparate,
+  StencilOp, opZero, opKeep, opReplace, opIncr,
+  opDecr, opInvert, opIncrWrap, opDecrWrap,
+  -- ** Depth
+  depthFunc,
+  CompFunc, glNever, glLess, glEqual, glLessEq,
+  glGreater, glNotEq, glGreatEq, glAlways,
+  -- ** Blend
+  blendEquation, blendEquationSeparate,
+  blendFunc, blendFuncSeparate,
+  Clampf, blendColor,
+  BlendOp, addBlending, subBlending, reverseSubBlending,
+  BlendingFactor, factorZero, factorOne, srcColor, oneMinusSrcColor,
+  srcAlpha, oneMinusSrcAlpha, dstAlpha, oneMinusDstAlpha,
+  dstColor, oneMinusDstColor, srcAlphaSaturate,
+  constColor, oneMinusConstColor, constAlpha, oneMinusConstAlpha,
+  -- ** Hint
+  generateMipmapHint, fragmentShaderDerivativeHint,
+  Hint, dontCare, nicest, fastest
+  ) where
 import Data.Int
 import Data.Word
 import Graphics.OpenGLES.Base
-
--- * Graphics State
+import Graphics.OpenGLES.Internal
 
 -- | Float value clamped to [0,1]
 type Clampf = Float
@@ -16,7 +57,9 @@ begin (Capability cap) = glEnable cap
 end :: Capability -> GL ()
 end (Capability cap) = glDisable cap
 
-newtype Capability = Capability GLenum deriving Show
+
+-- *** Capability
+
 culling = Capability 0x0B44
 blend = Capability 0x0BE2
 dither = Capability 0x0BD0
@@ -32,14 +75,15 @@ rasterizerDiscard = Capability 0x8C89
 lineWidth :: Float -> GL ()
 lineWidth = glLineWidth
 
--- | True if clockwise
+-- | CW -> True, CCW -> False
 frontFace :: Bool -> GL ()
 frontFace cw = glFrontFace (if cw then 0x900 else 0x901)
 
 cullFace :: CullFace -> GL ()
 cullFace (Culling x) = glCullFace x
 
-newtype CullFace = Culling GLenum deriving Show
+-- *** CullFace
+
 hideFront = Culling 0x0404
 hideBack = Culling 0x0405
 hidePolygons = Culling 0x408
@@ -85,7 +129,8 @@ stencilOpSeparate (Culling cull) (StencilOp sfail)
 depthFunc :: CompFunc -> GL ()
 depthFunc (CompFunc func) = glDepthFunc func
 
-newtype CompFunc = CompFunc GLenum deriving Show
+-- *** CompFunc
+
 glNever    = CompFunc 0x0200
 glLess     = CompFunc 0x0201
 glEqual    = CompFunc 0x0202
@@ -95,7 +140,8 @@ glNotEq    = CompFunc 0x0205
 glGreatEq  = CompFunc 0x0206
 glAlways   = CompFunc 0x0207
 
-newtype StencilOp = StencilOp GLenum deriving Show
+-- *** StencilOp
+
 opZero     = StencilOp 0x0000
 opKeep     = StencilOp 0x1E00
 opReplace  = StencilOp 0x1E01
@@ -112,7 +158,8 @@ blendEquationSeparate :: BlendOp -> BlendOp -> GL ()
 blendEquationSeparate (BlendOp rgb) (BlendOp a) =
 	glBlendEquationSeparate rgb a
 
-newtype BlendOp = BlendOp GLenum deriving Show
+-- *** BlendOp
+
 addBlending        = BlendOp 0x8006
 subBlending        = BlendOp 0x800A
 reverseSubBlending = BlendOp 0x800B
@@ -126,7 +173,8 @@ blendFuncSeparate (BlendingFactor srgb) (BlendingFactor drgb)
 		(BlendingFactor salpha) (BlendingFactor dalpha) =
 	glBlendFuncSeparate srgb drgb salpha dalpha
 
-newtype BlendingFactor = BlendingFactor GLenum deriving Show
+-- *** BlendingFactor
+
 factorZero         = BlendingFactor 0
 factorOne          = BlendingFactor 1
 srcColor           = BlendingFactor 0x300
@@ -152,7 +200,8 @@ generateMipmapHint (Hint hint) = glHint 0x8192 hint
 fragmentShaderDerivativeHint :: Hint -> GL ()
 fragmentShaderDerivativeHint (Hint hint) = glHint 0x8B8B hint
 
-newtype Hint = Hint GLenum deriving Show
+-- *** Hint
+
 dontCare = Hint 0x1100
 fastest  = Hint 0x1101
 nicest   = Hint 0x1102

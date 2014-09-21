@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      This library is intended use on mobile, however,
@@ -23,12 +23,15 @@ library
   default-language: Haskell2010
 
   exposed-modules:
-    Data.Marshal,
     Graphics.EGL,
     Graphics.OpenGLES,
     Graphics.OpenGLES.Base,
+    Graphics.OpenGLES.Buffer,
     Graphics.OpenGLES.Core,
-    Graphics.OpenGLES.Env
+    Graphics.OpenGLES.Env,
+    Graphics.OpenGLES.Internal,
+    Graphics.OpenGLES.State,
+    Graphics.OpenGLES.Types
   
   other-extensions: ForeignFunctionInterface
   extra-libraries: EGL

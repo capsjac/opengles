@@ -1,25 +1,37 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Graphics.OpenGLES.Types
-  ( module Linear.Class
-  , module Linear.Vect
-  , module Linear.Mat
-  , Vec2, Vec3, Vec4
-  , BVec2, BVec3, BVec4
-  , IVec2, IVec3, IVec4
-  , UVec2, UVec3, UVec4
-  , Mat2, Mat3, Mat4
-  , Mat2x3, Mat2x4, Mat3x2
-  , Mat3x4, Mat4x2, Mat4x3
-  , HalfFloat(..), FixedFloat(..), Int10x3_2(..), Word10x3_2(..)
-  , glType
-  )
-  where
-import Linear.Class
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
+module Graphics.OpenGLES.Types (
+  -- * Shading Language Base Types
+  Vec2, Vec3, Vec4,
+  BVec2, BVec3, BVec4,
+  IVec2, IVec3, IVec4,
+  UVec2, UVec3, UVec4,
+  Mat2, Mat3, Mat4,
+  Mat2x3, Mat2x4, Mat3x2,
+  Mat3x4, Mat4x2, Mat4x3,
+
+  -- * Uniform Variable
+  Uniform, UnifVal,
+  
+  -- * Vertex Attribute
+  Attrib, ShaderAttribute, AttrStruct,
+  
+  -- * Vertex Attribute Array Source Datatypes
+  HalfFloat(..), FixedFloat(..),
+  Int10x3_2(..), Word10x3_2(..)
+  ) where
+import Control.Monad (when)
+import Foreign
+import Linear.Class (Transpose, transpose)
 import Linear.Vect
 import Linear.Mat
-import Foreign
+import Graphics.OpenGLES.Base
+import Graphics.OpenGLES.Internal
+
 
 type Vec2 = V2 Float
 type Vec3 = V3 Float
@@ -43,33 +55,201 @@ type Mat3x4 = M3x4 Float
 type Mat4x2 = M4x2 Float
 type Mat4x3 = M4x3 Float
 
---data M2 a = M2 a a a a
---	deriving (Show)
---data M3 a = M3 a a a a a a a a a
---	deriving (Show)
---data M4 a = M4 a a a a a a a a a a a a a a a a
---	deriving (Show)
---data M2x3 a = M2x3 a a a a a a
---	deriving (Show)
---data M2x4 a = M2x4 a a a a a a a a
---	deriving (Show)
---data M3x2 a = M3x2 a a a a a a
---	deriving (Show)
---data M3x4 a = M3x4 a a a a a a a a a a a a
---	deriving (Show)
---data M4x2 a = M4x2 a a a a a a a a
---	deriving (Show)
---data M4x3 a = M4x3 a a a a a a a a a a a a
---	deriving (Show)
+
+--instance UnifVal Float where
+--	glUniform (loc, _, _) x = glUniform1f loc x
+
+#define Uniform(_typ, _arg, _suffix, _rhs) \
+instance UnifVal (_typ) where \
+	glUniform (loc, _, _) _arg = glUniform/**/_suffix loc _rhs \
+
+Uniform(Float,x,1f,x)
+Uniform(Vec2,(V2 x y),2f,x y)
+Uniform(Vec3,(V3 x y z),3f,x y z)
+Uniform(Vec4,(V4 x y z w),4f,x y z w)
+Uniform(Int32,x,1i,x)
+Uniform(IVec2,(V2 x y),2i,x y)
+Uniform(IVec3,(V3 x y z),3i,x y z)
+Uniform(IVec4,(V4 x y z w),4i,x y z w)
+Uniform(Word32,x,1ui,x)
+Uniform(UVec2,(V2 x y),2ui,x y)
+Uniform(UVec3,(V3 x y z),3ui,x y z)
+Uniform(UVec4,(V4 x y z w),4ui,x y z w)
+
+--instance UnifVal [Float] where
+--	glUniform (loc, len, ptr) values = do
+--		let len' = fromIntegral len
+--		pokeArray (castPtr ptr :: Ptr Float) (take len' values)
+--		glUniform1fv loc len (castPtr ptr)
+
+pokeUniformArray
+	:: Storable b => (GLint -> GLsizei -> Ptr a -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [b] -> GL ()
+pokeUniformArray glUniformV (loc, len, ptr) values = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr b) (take len' values)
+	glUniformV loc len (castPtr ptr)
+
+instance UnifVal [Float] where glUniform = pokeUniformArray glUniform1fv
+instance UnifVal [Vec2] where glUniform = pokeUniformArray glUniform2fv
+instance UnifVal [Vec3] where glUniform = pokeUniformArray glUniform3fv
+instance UnifVal [Vec4] where glUniform = pokeUniformArray glUniform4fv
+instance UnifVal [Int32] where glUniform = pokeUniformArray glUniform1iv
+instance UnifVal [IVec2] where glUniform = pokeUniformArray glUniform2iv
+instance UnifVal [IVec3] where glUniform = pokeUniformArray glUniform3iv
+instance UnifVal [IVec4] where glUniform = pokeUniformArray glUniform4iv
+instance UnifVal [Word32] where glUniform = pokeUniformArray glUniform1uiv
+instance UnifVal [UVec2] where glUniform = pokeUniformArray glUniform2uiv
+instance UnifVal [UVec3] where glUniform = pokeUniformArray glUniform3uiv
+instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
+
+-- 'transpose' argument must be GL_FALSE in GL ES 2.0
+pokeMatrix :: (Transpose a b, Storable b)
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
+pokeMatrix glUniformMatrixV (loc, 1, ptr) matrix = do
+	poke (castPtr ptr :: Ptr b) (transpose matrix)
+	glUniformMatrixV loc 1 0 (castPtr ptr)
+pokeMatrix _ _ _ = return () -- poke to nullPtr
 
 
--- * Vertex Attributes
+instance UnifVal Mat2 where glUniform = pokeMatrix glUniformMatrix2fv
+instance UnifVal Mat3 where glUniform = pokeMatrix glUniformMatrix3fv
+instance UnifVal Mat4 where glUniform = pokeMatrix glUniformMatrix4fv
 
-newtype HalfFloat = HalfFloat Word16 deriving (Num,Read,Show,Storable)
-newtype FixedFloat = FixedFloat Int32 deriving (Num,Read,Show,Storable)
-newtype Int10x3_2 = Int10x3_2 Int32 deriving (Num,Read,Show,Storable)
-newtype Word10x3_2 = Word10x3_2 Int32 deriving (Num,Read,Show,Storable)
+-- GL ES 3.0+ supports transpose
+pokeMatrixT :: Storable a
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
+pokeMatrixT glUniformMatrixV (loc, 1, ptr) matrix = do
+	poke (castPtr ptr :: Ptr a) matrix
+	glUniformMatrixV loc 1 1 (castPtr ptr)
+pokeMatrixT _ _ _ = return ()
 
+-- http://delphigl.de/glcapsviewer/gles_extensions.php 
+instance UnifVal Mat2x3 where glUniform = pokeMatrixT glUniformMatrix2x3fv
+instance UnifVal Mat2x4 where glUniform = pokeMatrixT glUniformMatrix2x4fv
+instance UnifVal Mat3x2 where glUniform = pokeMatrixT glUniformMatrix3x2fv
+instance UnifVal Mat3x4 where glUniform = pokeMatrixT glUniformMatrix3x4fv
+instance UnifVal Mat4x2 where glUniform = pokeMatrixT glUniformMatrix4x2fv
+instance UnifVal Mat4x3 where glUniform = pokeMatrixT glUniformMatrix4x3fv
+
+-- 'transpose' argument must be GL_FALSE in GL ES 2.0
+pokeMatrices :: (Transpose a b, Storable b)
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
+pokeMatrices glUniformMatrixV (loc, len, ptr) matrices = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr b)
+		(map transpose $ take len' matrices) -- maybe slow
+	glUniformMatrixV loc len 0 (castPtr ptr)
+
+instance UnifVal [Mat2] where glUniform = pokeMatrices glUniformMatrix2fv
+instance UnifVal [Mat3] where glUniform = pokeMatrices glUniformMatrix3fv
+instance UnifVal [Mat4] where glUniform = pokeMatrices glUniformMatrix4fv
+
+-- GL ES 3.0+ supports transpose
+pokeMatricesT :: Storable a
+	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
+pokeMatricesT glUniformMatrixV (loc, len, ptr) matrices = do
+	let len' = fromIntegral len
+	pokeArray (castPtr ptr :: Ptr a) (take len' matrices)
+	glUniformMatrixV loc len 1 (castPtr ptr)
+
+instance UnifVal [Mat2x3] where glUniform = pokeMatricesT glUniformMatrix2x3fv
+instance UnifVal [Mat2x4] where glUniform = pokeMatricesT glUniformMatrix2x4fv
+instance UnifVal [Mat3x2] where glUniform = pokeMatricesT glUniformMatrix3x2fv
+instance UnifVal [Mat3x4] where glUniform = pokeMatricesT glUniformMatrix3x4fv
+instance UnifVal [Mat4x2] where glUniform = pokeMatricesT glUniformMatrix4x2fv
+instance UnifVal [Mat4x3] where glUniform = pokeMatricesT glUniformMatrix4x3fv
+
+
+-- Array of attributes is not supported in GLSL ES
+
+instance GenericVertexAttribute a => ShaderAttribute a where
+	glVertexAttrib idx x =
+		with (V4 x 0 0 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V2 a) where
+	glVertexAttrib idx (V2 x y) =
+		with (V4 x y 0 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V3 a) where
+	glVertexAttrib idx (V3 x y z) =
+		with (V4 x y z 1) $ glVertexAttrib4v idx
+instance GenericVertexAttribute a => ShaderAttribute (V4 a) where
+	glVertexAttrib idx v4 =
+		with v4 $ glVertexAttrib4v idx
+instance ShaderAttribute Mat2 where
+	glVertexAttrib idx (M2 (V2 a b) (V2 c d)) = do
+		with (V4 a c 0 1) $ glVertexAttrib4v idx
+		with (V4 b d 0 1) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat3 where
+	glVertexAttrib idx (M3 (V3 a b c) (V3 d e f) (V3 g h i)) = do
+		with (V4 a d g 1) $ glVertexAttrib4v idx
+		with (V4 b e h 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f i 1)  $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat4 where
+	glVertexAttrib idx (M4 (V4 a b c d) (V4 e f g h) (V4 i j k l) (V4 m n o p)) = do
+		with (V4 a e i m) $ glVertexAttrib4v idx
+		with (V4 b f j n) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g k o) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h l p) $ glVertexAttrib4v (idx + 3)
+-- XXX I'm not sure below types are actually supported by the GL
+instance ShaderAttribute Mat3x2 where
+	glVertexAttrib idx (M3x2 a b  c d  e f) = do
+		with (V4 a c e 1) $ glVertexAttrib4v idx
+		with (V4 b d f 1) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat4x2 where
+	glVertexAttrib idx (M4x2 a b  c d  e f  g h) = do
+		with (V4 a c e g) $ glVertexAttrib4v idx
+		with (V4 b d f h) $ glVertexAttrib4v (idx + 1)
+instance ShaderAttribute Mat2x3 where
+	glVertexAttrib idx (M2x3 a b c  d e f) = do
+		with (V4 a d 0 1) $ glVertexAttrib4v idx
+		with (V4 b e 0 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f 0 1) $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat4x3 where
+	glVertexAttrib idx (M4x3 a b c  d e f  g h i  j k l) = do
+		with (V4 a d g j) $ glVertexAttrib4v idx
+		with (V4 b e h k) $ glVertexAttrib4v (idx + 1)
+		with (V4 c f i l) $ glVertexAttrib4v (idx + 2)
+instance ShaderAttribute Mat2x4 where
+	glVertexAttrib idx (M2x4 a b c d  e f g h) = do
+		with (V4 a e 0 1) $ glVertexAttrib4v idx
+		with (V4 b f 0 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g 0 1) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h 0 1) $ glVertexAttrib4v (idx + 3)
+instance ShaderAttribute Mat3x4 where
+	glVertexAttrib idx (M3x4 a b c d  e f g h  i j k l) = do
+		with (V4 a e i 1) $ glVertexAttrib4v idx
+		with (V4 b f j 1) $ glVertexAttrib4v (idx + 1)
+		with (V4 c g k 1) $ glVertexAttrib4v (idx + 2)
+		with (V4 d h l 1) $ glVertexAttrib4v (idx + 3)
+
+
+--(GLuint indx, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* ptr)
+instance AttrStruct Float (Attrib p Float) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $
+			glVertexAttribDivisor idx divisor
+		-- XXX 3.1 spec says normalize is ignored for floating-point types, really?
+		glVertexAttribPointer idx 1 (glType buf) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct Vec2 (Attrib p Vec2) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Float])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct (V2 Word8) (Attrib p Vec2) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+
+{-
 class (Storable a, Num a) => AttrElement a where
 instance AttrElement Word8
 instance AttrElement Word16
@@ -81,7 +261,6 @@ instance AttrElement Float
 instance AttrElement HalfFloat
 instance AttrElement FixedFloat
 
-{-
 case splitTyConApp values of
 getrepl (con, args)
 	| con == float = [(1, 4, flo)]
@@ -111,7 +290,6 @@ int8 = typeRep (Proxy :: Proxy Int8)
 int16 = typeRep (Proxy :: Proxy Int16)
 int32 = typeRep (Proxy :: Proxy Int32)
 float = typeRep (Proxy :: Proxy Float)
--}
 
 class Storable a => AttrVal a where
 -- scalar
@@ -180,112 +358,6 @@ instance AttrVal (T4 Word10x3_2)
 --	sizeOf _ = 2; alignment _ = 4; peek = undefined
 --	poke p (HalfFloat x) = poke (castPtr p) x
 
-{-
-instance Storable a => Storable (T2 a) where
-	sizeOf (T2 x _) = sizeOf x * 2
-	alignment (T2 x _) = (sizeOf x * 2 + 3) .&. 12
-	peek = undefined
-	poke p' (T2 x y) = poke p x >> pokeElemOff p 1 y
-		where p = castPtr p'
-
-instance Storable a => Storable (T3 a) where
-	sizeOf (T3 x _ _) = sizeOf x * 3
-	alignment (T3 x _ _) = (sizeOf x * 3 + 3) .&. 12
-	peek = undefined
-	poke p' (T3 x y z) = do
-		poke p x
-		pokeElemOff p 1 y
-		pokeElemOff p 2 z
-		where p = castPtr p'
-
-instance Storable a => Storable (T4 a) where
-	sizeOf (T4 x _ _ _) = sizeOf x * 4
-	alignment (T4 x _ _ _) = sizeOf x * 4
-	peek = undefined
-	poke p' (T4 x y z w) = do
-		poke p x
-		pokeElemOff p 1 y
-		pokeElemOff p 2 z
-		pokeElemOff p 3 w
-		where p = castPtr p'
-
-instance Storable a => Storable (M2 a) where
-	sizeOf (M2 a _ _ _) = sizeOf a * 4
-	alignment = sizeOf
-	peek = undefined
-	poke p (M2 a b c d) = pokeArray (castPtr p) [a,d, c,a]
-
-instance Storable a => Storable (M3 a) where
-	sizeOf (M3 a _ _ _ _ _ _ _ _) = sizeOf a * 9
-	alignment = sizeOf
-	peek = undefined
-	poke p (M3 a b c d e f g h i) =
-		pokeArray (castPtr p) [a,d,g, b,e,h, c,f,i]
-
-instance Storable a => Storable (M4 a) where
-	sizeOf (M4 a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = sizeOf a * 16
-	alignment = sizeOf
-	peek = undefined
-	poke t (M4 a b c d e f g h i j k l m n o p) =
-		pokeArray (castPtr t) [a,e,i,m, b,f,j,n, c,g,k,o, d,h,l,p]
-
-instance Storable a => Storable (M2x3 a) where
-	sizeOf (M2x3 a _ _ _ _ _) = sizeOf a * 6
-	alignment = sizeOf
-	peek = undefined
-	poke p (M2x3 a b c d e f) =
-		pokeArray (castPtr p) [a,d, b,e, c,f]
-
-instance Storable a => Storable (M2x4 a) where
-	sizeOf (M2x4 a _ _ _ _ _ _ _) = sizeOf a * 8
-	alignment = sizeOf
-	peek = undefined
-	poke p (M2x4 a b c d e f g h) =
-		pokeArray (castPtr p) [a,e, b,f, c,g, d,h]
-
-instance Storable a => Storable (M3x2 a) where
-	sizeOf (M3x2 a _ _ _ _ _) = sizeOf a * 6
-	alignment = sizeOf
-	peek = undefined
-	poke p (M3x2 a b c d e f) =
-		pokeArray (castPtr p) [a,c,e, b,d,f]
-
-instance Storable a => Storable (M3x4 a) where
-	sizeOf (M3x4 a _ _ _ _ _ _ _ _ _ _ _) = sizeOf a * 12
-	alignment = sizeOf
-	peek = undefined
-	poke p (M3x4 a b c d e f g h i j k l) =
-		pokeArray (castPtr p) [a,e,i, b,f,j, c,g,k, d,h,l]
-
-instance Storable a => Storable (M4x2 a) where
-	sizeOf (M4x2 a _ _ _ _ _ _ _) = sizeOf a * 8
-	alignment = sizeOf
-	peek = undefined
-	poke p (M4x2 a b c d e f g h) =
-		pokeArray (castPtr p) [a,c,e,g, b,d,f,h]
-
-instance Storable a => Storable (M4x3 a) where
-	sizeOf (M4x3 a _ _ _ _ _ _ _ _ _ _ _) = sizeOf a * 12
-	alignment = sizeOf
-	peek = undefined
-	poke p (M4x3 a b c d e f g h i j k l) =
-		pokeArray (castPtr p) [a,d,g,j, b,e,h,k, c,f,i,l]
 -}
 
-
-class GLType a where
-	glType :: m a -> Word32
-
-instance GLType Int8 where glType _ = 0x1400
-instance GLType Word8 where glType _ = 0x1401
-instance GLType Int16 where glType _ = 0x1402
-instance GLType Word16 where glType _ = 0x1403
-instance GLType Int32 where glType _ = 0x1404
-instance GLType Word32 where glType _ = 0x1405
-
-instance GLType Float where glType _ = 0x1406
-instance GLType HalfFloat where glType _ = 0x140B
-instance GLType FixedFloat where glType _ = 0x140C
-instance GLType Int10x3_2 where glType _ = 0x8D9F
-instance GLType Word10x3_2 where glType _ = 0x8368
 

@@ -1,15 +1,8 @@
-{-# LANGUAGE RecordWildCards, DeriveDataTypeable, FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards, DeriveDataTypeable #-}
 module Main where
 import Control.Applicative
 import Control.Monad
-import Graphics.OpenGLES.Core
-import Graphics.OpenGLES.State
-import Graphics.OpenGLES.Base
-import Graphics.OpenGLES.Env
-import Graphics.OpenGLES.Types
-import Control.Future
-import Data.Int
-import Data.Word
+import Graphics.OpenGLES
 import qualified Data.ByteString.Char8 as B
 import Data.Typeable
 import qualified Graphics.UI.GLFW as GLFW
@@ -27,10 +20,10 @@ main = do
 	let loop c = do
 		withGL $ runAction $ draw <$> future
 		endFrameGL
-		putStrLn .show$c
+		putStrLn . show $ c
 		GLFW.pollEvents
 		closing <- GLFW.windowShouldClose win
-		when (not closing) $loop (c+1)
+		when (not closing) $ loop (c+1)
 	loop 0
 
 data Billboard = Billboard
@@ -110,8 +103,4 @@ draw SomeObj{..} = do
 		vao $ takeFrom 0 4
 	putStrLn . show $ r
 
---x &= y = return ()
-data Texture = Texture
 updateSomeObj _ _ = return ()
---instance UnifVal Mat3
-instance UnifVal Texture where glUniform (l, s, p) t = return ()

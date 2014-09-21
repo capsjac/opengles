@@ -1,4 +1,4 @@
--- | OpenGL ES (ES for Embed Systems) 2.0
+-- | OpenGL ES (ES for Embed Systems) 2.0 and 3.0
 -- <http://www.khronos.org/opengles/sdk/docs/reference_cards/OpenGL-ES-2_0-Reference-card.pdf>
 -- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
 -- 
@@ -6,10 +6,24 @@
 -- <http://code.google.com/p/angleproject/>
 
 module Graphics.OpenGLES (
-	module Data.Vect,
-	module Graphics.OpenGLES.Base,
-	module Graphics.OpenGLES.Core
-	) where
-import Data.Vect
-import Graphics.OpenGLES.Base
+  module Control.Future,
+  module Data.Int,
+  module Data.Word,
+  module Graphics.OpenGLES.Buffer,
+  module Graphics.OpenGLES.Core,
+  module Graphics.OpenGLES.State,
+  module Graphics.OpenGLES.Types,
+  module Linear.Class,
+  module Linear.Vect,
+  module Linear.Mat
+  ) where
+import Control.Future
+import Data.Int
+import Data.Word
+import Graphics.OpenGLES.Buffer
 import Graphics.OpenGLES.Core
+import Graphics.OpenGLES.State
+import Graphics.OpenGLES.Types
+import Linear.Class
+import Linear.Vect
+import Linear.Mat
