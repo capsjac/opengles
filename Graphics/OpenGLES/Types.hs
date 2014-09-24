@@ -226,7 +226,8 @@ instance ShaderAttribute Mat3x4 where
 		with (V4 c g k 1) $ glVertexAttrib4v (idx + 2)
 		with (V4 d h l 1) $ glVertexAttrib4v (idx + 3)
 
-
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- XXX Not completed, please add instances here
 --(GLuint indx, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* ptr)
 instance AttrStruct Float (Attrib p Float) p where
 	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
@@ -242,7 +243,37 @@ instance AttrStruct Vec2 (Attrib p Vec2) p where
 		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
 		glVertexAttribPointer idx 2 (glType ([] :: [Float])) normalized 0 nullPtr
 	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct Vec3 (Attrib p Vec3) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 3 (glType ([] :: [Float])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct Vec4 (Attrib p Vec4) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 4 (glType ([] :: [Float])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct Word8 (Attrib p Float) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 1 (glType ([] :: [Word8])) normalized 0 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
 instance AttrStruct (V2 Word8) (Attrib p Vec2) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 4 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct (V3 Word8) (Attrib p Vec3) p where
+	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
+		glEnableVertexAttribArray idx
+		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
+		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 4 nullPtr
+	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
+instance AttrStruct (V4 Word8) (Attrib p Vec4) p where
 	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
 		glEnableVertexAttribArray idx
 		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
@@ -357,7 +388,7 @@ instance AttrVal (T4 Word10x3_2)
 --instance Storable HalfFloat where
 --	sizeOf _ = 2; alignment _ = 4; peek = undefined
 --	poke p (HalfFloat x) = poke (castPtr p) x
-
 -}
+
 
 

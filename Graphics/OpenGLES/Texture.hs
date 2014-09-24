@@ -2,23 +2,41 @@
 module Graphics.OpenGLES.Texture (
   -- * Texture
   Texture,
-  TextureColorFormat,
-  TextureBitLayout,
-  TextureInternalFormat,
-  TextureData,
+  --TextureColorFormat,
+  --TextureBitLayout,
+  --TextureInternalFormat,
+  --TextureData,
+  glLoadKtx,
+  glLoadKtxFile,
 
-  -- ** Sampler
-  Sampler,
+  texSlot,
+
+  -- * Sampler
+  setSampler,
+  Sampler(..),
+  
   MagFilter,
+  magNearest,
+  magLinear,
+  
   MinFilter,
+  minNearest,
+  minLinear,
+  nearestMipmapNearest,
+  linearMipmapNearest,
+  nearestMipmapLinear,
+  linearMipmapLinear,
+  
   WrapMode,
-
-  glLoadKtxFile
+  tiledRepeat,
+  clampToEdge,
+  mirroredRepeat
   ) where
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as B
 import Data.Int
+import Data.Word
 import Data.IORef
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
@@ -26,8 +44,15 @@ import Graphics.OpenGLES.Internal
 import Graphics.TextureContainer.KTX
 import Foreign.Ptr (castPtr)
 
-data Texture = Texture GLO (IORef Ktx)
+-- glo, target, ktx
+data Texture = Texture GLenum GLO (IORef Ktx)
 -- XXX Texture DoubleBufferring
+
+texSlot :: Word32 -> Texture -> GL ()
+texSlot slot (Texture target glo _) = do
+	tex <- readIORef glo >>= return . fst
+	glActiveTexture (0x84C0 + slot) -- GL_TEXTURE_0 + slot
+	glBindTexture target tex
 
 data TextureColorFormat = ALPHA | RGB | RGBA | LUMINANCE | LUMINANCE_ALPHA
 
@@ -55,21 +80,30 @@ data TextureData =
 	-- .| Palette
 
 -- | Load a GL Texture object from Ktx texture container.
--- Ref <https://github.com/KhronosGroup/KTX/blob/master/lib/loader.c>
-loadKtx :: Maybe Texture -> Ktx -> GL Texture
-loadKtx Nothing ktx@Ktx{..} = do
-	--putStrLn.show$ktx
-	let newTexture target = Texture
-		<$> newGLO glGenTextures (glBindTexture target) glDeleteTextures
-		<*> newIORef ktx
+-- See <https://github.com/KhronosGroup/KTX/blob/master/lib/loader.c>
+-- TODO: reject 2DArray/3D texture if unsupported
+glLoadKtx :: Maybe Texture -> Ktx -> GL Texture
+glLoadKtx oldtex ktx@Ktx{..} = do
+	--putStrLn.show $ ktx
+	let newTexture target = case oldtex of
+		Just (Texture _ glo ref) -> do
+			writeIORef ref ktx
+			readIORef glo >>= glBindTexture target . fst
+			return (Texture target glo ref)
+		Nothing -> Texture target
+			<$> newGLO glGenTextures (glBindTexture target) glDeleteTextures
+			<*> newIORef ktx
 	case checkKtx ktx of
 		Left msg -> glLog (msg ++ ": " ++ ktxName) >> newTexture 0
 		Right (comp, target, genmip) -> do
-			putStrLn . show $ (comp, target,genmip)
 			tex <- newTexture target
+			-- ES2 compat;
 			let fmt = if comp || sizedFormats
-				then ktxGlInternalFormat
+				then if ktxGlInternalFormat == 0x8D64 && hasETC2 -- ETC1_RGB8_OES
+					then 0x9274 -- GL_COMPRESSED_RGB8_ETC2
+					else ktxGlInternalFormat
 				else ktxGlBaseInternalFormat
+			putStrLn . show $ (comp, target,genmip, ktxGlInternalFormat, hasETC2, fmt)
 			let uploadMipmap _ _ _ _ [] = return ()
 			    uploadMipmap level w h d (faces:rest) = do
 				case (comp, target) of
@@ -121,13 +155,8 @@ loadKtx Nothing ktx@Ktx{..} = do
 			return tex
 
 glLoadKtxFile :: FilePath -> GL Texture
-glLoadKtxFile path = ktxFromFile path >>= loadKtx Nothing
+glLoadKtxFile path = ktxFromFile path >>= glLoadKtx Nothing
 
---loadKtx tex@(Just (Texture glo ref)) ktx = do
---	checkKtx ktx ? iffail
---	writeIORef ktx
---	return tex
--- /* reject 3D texture if unsupported */
 -- glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
 --hasES2 =
 --	supportsSwizzle = GL_FALSE;
@@ -138,9 +167,11 @@ glLoadKtxFile path = ktxFromFile path >>= loadKtx Nothing
 --hasExt "GL_OES_required_internalformat" =
 --	sizedFormats |= _ALL_SIZED_FORMATS
 sizedFormats = hasES3 || hasExt "GL_OES_required_internalformat"
-
 -- There are no OES extensions for sRGB textures or R16 formats.
-
+hasETC2 = hasES3
+hasPVRTC = hasExt "GL_IMG_texture_compression_pvrtc"
+hasATITC = hasExt "GL_ATI_texture_compression_atitc"
+hasS3TC = hasExt "GL_EXT_texture_compression_s3tc"
 
 -- | Check a KTX file header.
 -- returning (isCompressed?, textureTarget, generateMipmapNeeded?)
@@ -188,19 +219,18 @@ texture_cube_map_positive_x = 0x8515
 
 -- 2d vs. 3d / mag + min vs. max
 -- | (Texture wrap mode, A number of ANISOTROPY filter sampling points
--- (specify 0 to disable anisotropy filter), (Fallback) Mag and Min filters).
+-- (specify 1.0 to disable anisotropy filter), (Fallback) Mag and Min filters).
 -- 
 -- When /EXT_texture_filter_anisotropic/ is not supported, fallback filters
 -- are used instead.
 data Sampler =
-	  Sampler2D (WrapMode, WrapMode) Int32 (MagFilter, MinFilter)
-	| Sampler3D (WrapMode, WrapMode, WrapMode) Int32 (MagFilter, MinFilter)
+	Sampler (WrapMode, WrapMode, Maybe WrapMode) Float (MagFilter, MinFilter)
 
 newtype MagFilter = MagFilter Int32
 magNearest = MagFilter 0x2600
 magLinear = MagFilter 0x2601
 
--- TODO NoMipmap => use minLinear instead
+-- TODO NoMipmap => use minLinear instead / forceGenMip?
 newtype MinFilter = MinFilter Int32
 minNearest = MinFilter 0x2600
 minLinear = MinFilter 0x2601
@@ -209,12 +239,28 @@ linearMipmapNearest = MinFilter 0x2701
 nearestMipmapLinear = MinFilter 0x2702
 linearMipmapLinear = MinFilter 0x2703
 
--- TODO: NPOT => ClampToEdge only check / has ext?
+-- TODO: NPOT && not ClampToEdge && not (hasES3 || hasExt "GL_OES_texture_npot") => error
 newtype WrapMode = WrapMode Int32
-repeatTexture = WrapMode 0x2901
+tiledRepeat = WrapMode 0x2901
 clampToEdge = WrapMode 0x812F
 mirroredRepeat = WrapMode 0x8370
 
+setSampler :: Texture -> Sampler -> GL ()
+setSampler (Texture target glo _) (Sampler (WrapMode s, WrapMode t, r) a
+		(MagFilter g, MinFilter n)) = do
+	tex <- readIORef glo >>= return . fst
+	glBindTexture target tex
+	glTexParameteri target 0x2802 s
+	glTexParameteri target 0x2803 t
+	maybe (return ()) (\(WrapMode x) -> glTexParameteri target 0x8072 x) r
+	--if a /= 1.0 && hasExt "GL_EXT_texture_filter_anisotropic" then
+	-- GL_TEXTURE_MAX_ANISOTROPY_EXT
+	glTexParameterf target 0x84FE a
+	glTexParameteri target 0x2800 g
+	glTexParameteri target 0x2801 n
+
+--setLOD :: Texture -> Int32 -> Int32 -> GL ()
+--setTexCompFunc :: Texture ->  ->  -> GL ()
 
 -- mipmaps, compressed, fallbacks
 -- [comptex, fallback]
@@ -225,170 +271,11 @@ mirroredRepeat = WrapMode 0x8370
 ---- Android without Alpha: ETC1
 ---- PC: S3TC + Uncompressed
 --glm detect compression support
---glm detect max filter support
 -- record Gen/Del/Draw* calls and responces
 -- prefferedformat == "etc1" like.
 -- texture from file "name" [path..] genMipmap?flag
--- feedback record, framebuffer management with glViewport?
--- Viewport....,BindFramebuffer,BindEGLContext,UnbindEGL
 --Utils.hs shrinked triangles, 
 --  Update[Sub]Texture,UpdateVertex(Buffer)
 -- "texname" [tex1,tex2,...] auto select
--- auto alignment of texture data
 -- texture atlas managment
-{-
-data Texture =
-	  RawTexture String GLenum GLint GLint GLsizei GLsizei GLenum GLenum
-  	-- ^ name, target, level, internalFormat, width, height, format, type
-	| TextureFile
-		{ texName :: String
-		, texSampler :: Sampler
-		, texUnit :: Int
-		, texBlob :: B.ByteString
-		, texGenMipmap :: Bool
-		}
-	| TextureFile'
-		{ texName :: String
-		, texFile :: B.ByteString
-		, texName2 :: String
-		, texFile2 :: B.ByteString
-		, texSampler :: Sampler
-		, texUnit :: Int
-		, texGenMipmap :: Bool
-		}
-	| Texture
-		{ texName :: String
-		, texTarget :: TextureTarget
-		, texLevel :: Int
-		, texInternalFormat :: TextureInternalFormat
-		, texWidth :: Int
-		, texHeight :: Int
-		, texBitLayout :: TextureBitLayout
-		, texSampler :: Sampler
-		, texUnit :: Int -- Maybe Int 0..31
-		, texData :: [(Int, B.ByteString)]
-		, texGenMipmap :: Bool
-		}
-	| Compressed
-		{ texName :: String
-		, texTarget :: TextureTarget
-		, texLevel :: Int
-		--, texFormat :: CompressionMethod
-		, texWidth :: Int
-		, texHeight :: Int
-		, texSampler :: Sampler
-		, texUnit :: Int -- Maybe Int 0..31
-		, texData :: [(Int, B.ByteString)]
-		, texGenMipmap :: Bool
-		}
-	| Texture'
-		{
-		  texName :: String
-		, texSampler :: Sampler
-		, texRef :: TextureRef
-		, texUnit :: Int
-		}
 
-data TextureTarget =
-	  Tex2D
-	| CubeMapPositiveX
-	| CubeMapPositiveY
-	| CubeMapPositiveZ
-	| CubeMapNegativeX
-	| CubeMapNegativeY
-	| CubeMapNegativeZ
-	| Tex3D -- ^ introduced in ES 3.0
-	| Tex2DArray -- ^ introduced in ES 3.0
-	deriving (Show, Eq)
-
-instance Marshal TextureTarget where
-	marshal x = case x of
-		Tex2D          -> 0x0DE1
-		TexCubeMap     -> 0x8513
-		TexCubeMapPosX -> 0x8515
-		TexCubeMapPosY -> 0x8517
-		TexCubeMapPosZ -> 0x8519
-		TexCubeMapNegX -> 0x8516
-		TexCubeMapNegY -> 0x8518
-		TexCubeMapNegZ -> 0x851A
-		Tex3D          -> 0x806F
-		Tex2DArray     -> 0x8C1A
--}
-
-
-
-
-{-
-data FramebufferTarget = Framebuffer
-data FramebufferTarget' = Framebuffer'
-                        | DrawFramebuffer -- ^ ES 3.0
-                        | ReadFramebuffer -- ^ ES 3.0
-instance BindTarget	FramebufferId FramebufferTarget
-instance Marshal FramebufferTarget where
-	marshal Framebuffer = 0x8D40
-
-data RenderbufferTarget = Renderbuffer
-instance BindTarget	RenderbufferId RenderbufferTarget
-instance Marshal RenderbufferTarget where
-	marshal Renderbuffer = 0x8D40
-
--- | ES 3.0
-data QueryTarget = AnySamplesPassed | AnySamplesPassedConservative
-instance BindTarget	QueryId QueryTarget
-instance Marshal QueryTarget where
-	marshal AnySamplesPassed = 0x8C2F
-	marshal AnySamplesPassedConservative = 0x8D6A
-
--- | ES 3.0
-data TransformFeedbackTarget = TransformFeedback
-instance BindTarget	TransformFeedback TransformFeedbackTarget
-instance Marshal TransformFeedbackTarget where
-	marshal TransformFeedback = 0x8E22
-
-useProgram :: ProgramId -> IO ()
-useProgram (ProgramId p) = glUseProgram p
-
-deleteProgram :: ProgramId -> IO ()
-deleteProgram (ProgramId p) = glDeleteProgram p
-
-	DrawTextureExt -- XXX test: may not work with 2.0+ context.
-		:: !TextureObj
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> !Int32
-		-> GLCall GLError
-	-- XXX integrate as buffer operations?
-	ViewPort -- ^ Cliping rendering area. The origin is left-bottom.
-		:: !Int32 -- ^ x
-		-> !Int32 -- ^ y
-		-> !Int32 -- ^ w
-		-> !Int32 -- ^ h
-		-> GLCall GLError
-BeginTransformFeedback :: TransformFeedback -> DrawMode -> GLCall ()
-EndTransformFeedback :: GLCall ()
-
--- Performance Memo
--- WRONG -> L1Cache is fast. RIGHT -> Main memory is slow.
--- 
--- data Foo = Foo Char Int deriving (Data,Typeable,Show)
--- will add 20KB per derivation. -O make things worse: 36KB
--- Conclusion: Avoid using meta functions in busy loop
-
-type GLName = CString -- eliminate hungry [Char]s. +rewrite rule.
-
--- | Read the OpenGL ES man pages for detail.
--- <http://www.khronos.org/opengles/sdk/docs/man31/>
--- <http://www.khronos.org/files/opengles3-quick-reference-card.pdf>
-	-- GenFramebuffer :: GLCall FBO
-	-- ModFramebuffer :: GLCall GLError
-	-- GenRenderbuffer :: RenderbufferUsage -> GLCall RBO
-	-- SetFramebuffer in GraphicState?
-	-- BeginQuery :: QueryType -> GLCall GLError
-	-- EndQuery :: GLCall ()
--}

@@ -10,7 +10,7 @@ import Control.Concurrent
 
 main = do
 	GLFW.init
-	Just win <- GLFW.createWindow 600 480 "The Billboard" Nothing Nothing
+	Just win <- GLFW.createWindow 534 600 "The Billboard" Nothing Nothing
 	forkGL
 		(GLFW.makeContextCurrent (Just win) >> return False)
 		(GLFW.makeContextCurrent Nothing)
@@ -28,7 +28,8 @@ main = do
 
 data Billboard = Billboard
 	{ billboard :: Program Billboard
-	, mvpMatrix :: Uniform Billboard Mat3
+	, mvpMatrix :: Uniform Billboard Mat4
+	, tex :: Uniform Billboard Int32
 	, pos :: Attrib Billboard Vec2
 	, uv :: Attrib Billboard Vec2
 	} deriving Typeable
@@ -40,38 +41,30 @@ mkBillboard = do
 		, fragmentShader "bb.fs" fsSrc ]
 		$ \prog step msg bin ->
 			putStrLn $ "> step " ++ show step ++ ", " ++ msg
-	Billboard p <$> uniform "mvpMatrix"
+	Billboard p <$> uniform "mvpMatrix" <*> uniform "tex_unit"
 		<*> attrib "pos" <*> attrib "uv"
-
-vsSrc3 = B.pack $
-	"#version 300 es\n\
-	\ in mat4 ttt;in mat4 sss;\
-	\ void main(){gl_Position = vec4(1) * ttt * sss;}"
-
-fsSrc3 = B.pack $
-	"#version 300 es\n\
-	\precision mediump float;\
-	\ out vec4 var;\
-	\ void main(){var = vec4(1);}"
 
 vsSrc = B.pack $
 	"#version 100\n" ++
-	"uniform mat3 mvpMatrix;\n" ++
+	"uniform mat4 mvpMatrix;\n" ++
 	"attribute vec2 pos;\n" ++
 	"attribute vec2 uv;\n" ++
-	"uniform struct qqq { vec2 w[2]; };uniform struct aww { vec4 wew; vec3 www[3]; ivec2 oo[10]; qqq s[10];} ogg[20];uniform vec4 uuuuu[63];" ++
-	"varying vec4 vColor;\n" ++
+	"varying vec4 color;\n" ++
+	"varying vec2 tex_coord;\n" ++
 	"void main() {\n" ++
-	"    gl_Position = vec4(mvpMatrix*vec3(pos, -1.0), 1.0);\n" ++
-	"    vColor = vec4(uv, 0.5, 1.0)/*+uuuuu[10]+ogg[19].wew*/;\n" ++
+	"    gl_Position = mvpMatrix*vec4(pos, 0.0, 1.0);\n" ++
+	"    color = vec4(1.0-uv.x, 1.0-uv.y, 1.0, 1.0);\n" ++
+	"    tex_coord = uv;\n" ++
 	"}\n"
 
 fsSrc = B.pack $
 	"#version 100\n" ++
 	"precision mediump float;\n" ++
-	"varying vec4 vColor;\n" ++
+	"uniform sampler2D tex_unit;\n" ++
+	"varying vec4 color;\n" ++
+	"varying vec2 tex_coord;\n" ++
 	"void main() {\n" ++
-	"    gl_FragColor = vColor;\n" ++
+	"    gl_FragColor = color * texture2D(tex_unit, tex_coord);\n" ++
 	"}\n"
 
 data SomeObj = SomeObj
@@ -79,6 +72,8 @@ data SomeObj = SomeObj
 	, vao :: VertexArray Billboard
 	, posBuf :: Buffer Vec2
 	, uvBuf :: Buffer (V2 Word8)
+	, ixBuf :: Buffer Word8
+	, tex0 :: Texture
 	}
 
 mkSomeObj :: Billboard -> GL SomeObj
@@ -86,18 +81,20 @@ mkSomeObj prog@Billboard{..} = do
 	posBuf <- glLoadList app2gl (0,3) posData
 	uvBuf <- glLoadList app2gl (0,3) uvData
 	vao <- glVA [ pos &= posBuf, uv &= uvBuf]
+	tex0 <- glLoadKtxFile "white_fox.ktx" -- replace with your favorite one
+	setSampler tex0 (Sampler (tiledRepeat,tiledRepeat,Nothing) 16.0 (magLinear,minLinear))
+	ixBuf <- glLoadList app2gl (0,5) [0,1,2, 3,2,1]
 	return SomeObj {..}
 
-posData = [V2 0 0, V2 1 0, V2 0 1, V2 1 1]
-uvData = [V2 0 0, V2 0 1, V2 1 0, V2 1 1]
+posData = [V2 (-1) 1, V2 1 1, V2 (-1) (-1), V2 1 (-1)]
+uvData = [V2 0 0, V2 1 0, V2 0 1, V2 1 1]
 
 draw :: SomeObj -> GL ()
 draw SomeObj{..} = do
+	clear [] colorBuffer
 	let Billboard{..} = prog
-	updateSomeObj posBuf uvBuf
-	r <- glDraw triangleStrip billboard
-		[ begin culling, cullFace hideBack]
-		[ mvpMatrix $= (idmtx::Mat3)]
-		vao $ takeFrom 0 4
+	r <- glDraw drawTriangles billboard
+		[texSlot 0 tex0] --[ begin culling, cullFace hideBack]
+		[ mvpMatrix $= (idmtx::Mat4), tex $= 0 ]
+		vao $ byIndex ixBuf 0 6
 	putStrLn . show $ r
-updateSomeObj _ _ = return ()

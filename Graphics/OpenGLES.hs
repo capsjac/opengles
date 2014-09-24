@@ -12,6 +12,7 @@ module Graphics.OpenGLES (
   module Graphics.OpenGLES.Buffer,
   module Graphics.OpenGLES.Core,
   module Graphics.OpenGLES.State,
+  module Graphics.OpenGLES.Texture,
   module Graphics.OpenGLES.Types,
   module Linear.Class,
   module Linear.Vect,
@@ -23,6 +24,7 @@ import Data.Word
 import Graphics.OpenGLES.Buffer
 import Graphics.OpenGLES.Core
 import Graphics.OpenGLES.State
+import Graphics.OpenGLES.Texture
 import Graphics.OpenGLES.Types
 import Linear.Class
 import Linear.Vect

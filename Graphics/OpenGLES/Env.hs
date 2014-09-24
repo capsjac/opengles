@@ -41,11 +41,6 @@ glRenderer = unsafePerformIO $ glGetString 0x1F01 >>= peekCString
 glVersion = unsafePerformIO $ glGetString 0x1F02 >>= peekCString
 glShadingLanguageVersion = unsafePerformIO $ glGetString 0x8B8C >>= peekCString
 
-isPVRTCsupported, isATITCsupported, isS3TCsupported :: Bool
-isPVRTCsupported = hasExt "GL_IMG_texture_compression_pvrtc"
-isATITCsupported = hasExt "GL_ATI_texture_compression_atitc"
-isS3TCsupported = hasExt "GL_EXT_texture_compression_s3tc"
-
 
 -- * Integer Parameters
 
@@ -387,3 +382,5 @@ aliasedLineWidthRange = GLParamP 0x846E
 -- being rendered to.
 maxViewportDims = GLParamP 0x0D3A
 
+-- Ext
+--MAX_TEXTURE_MAX_ANISOTROPY_EXT      0x84FF

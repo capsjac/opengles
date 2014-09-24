@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.3.0.0
+version:             0.4.0
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      This library is intended use on mobile, however,

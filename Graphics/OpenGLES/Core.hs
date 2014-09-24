@@ -61,7 +61,7 @@ module Graphics.OpenGLES.Core (
   constAttrib,
   
   -- ** Texture
-  Texture,
+  -- | See "Graphics.OpenGLES.Texture"
 
   -- ** Vertex Picker
   VertexPicker, takeFrom,
@@ -169,7 +169,7 @@ nop = return ()
 
 -- * Drawing
 
--- | 
+-- |
 -- > clear [] colorBuffer
 -- > clear [bindFramebuffer buf] (colorBuffer+depthBuffer)
 clear
@@ -235,6 +235,7 @@ tessellationEvalS = Shader 0x8E87
 -- | Tessellation Shader requires /GL_EXT_tessellation_shader (ES3.1)/
 tessellationCtrlS = Shader 0x8E88
 
+
 glCompile
 	:: Typeable p
 	=> TransformFeedback
@@ -246,6 +247,8 @@ glCompile tf shaders progressLogger = do
 	let prog = Program glo tf shaders ([],[])
 	loadProgram prog (progressLogger prog)
 
+-- | glValidateProgram checks to see whether the executables contained in
+-- program can execute given the current OpenGL state.
 glValidate :: Program p -> GL String
 glValidate prog = alloca $ \intptr -> do
 	(pid, _) <- readIORef $ programGLO prog

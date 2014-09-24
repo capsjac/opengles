@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings #-}
--- | Ericsson ETC1/ETC2/EAC Texture Container Format
+-- | Ericsson's ETC1\/ETC2\/EAC Texture Container Format
 module Graphics.TextureContainer.PKM where
 import Control.Applicative
 import Control.Exception
