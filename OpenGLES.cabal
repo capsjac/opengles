@@ -2,8 +2,10 @@ name:                opengles
 version:             0.4.0
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
+                     The mission statement of this library is three F: Fun, Fast, yet Flexible.
+                     Please check out simple texture rendering example in just 100 lines.
                      This library is intended use on mobile, however,
-                     also works in OpenGL 4.1/4.3+ environment.
+                     also works in OpenGL 4.1/4.3+ environment on desktop.
 license:             LGPL-3
 license-file:        LICENSE
 author:              capsjac@gmail.com
