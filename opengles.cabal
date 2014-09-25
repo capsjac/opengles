@@ -8,9 +8,9 @@ description:         A simplified OpenGL ES core wrapper library.
                      also works in OpenGL 4.1/4.3+ environment on desktop.
 license:             LGPL-3
 license-file:        LICENSE
-author:              capsjac@gmail.com
-maintainer:          capsjac@gmail.com
--- copyright:           
+author:              capsjac <capsjac at gmail dot com>
+maintainer:          capsjac <capsjac at gmail dot com>
+copyright:           (c) 2014 capsjac
 category:            Graphics
 build-type:          Simple
 extra-source-files:
@@ -47,7 +47,6 @@ library
   build-depends:
     base >= 4.6 && < 5,
     bytestring >= 0.10 && < 1,
-    vect >= 0.4 && < 0.5,
     ghc-prim,
     array >= 0.5 && < 0.6,
     future-resource >= 0.3,
