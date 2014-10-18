@@ -22,7 +22,7 @@ module Graphics.OpenGLES.Types (
   
   -- * Vertex Attribute Array Source Datatypes
   HalfFloat(..), FixedFloat(..),
-  Int10x3_2(..), Word10x3_2(..)
+  Int2_10x3(..), Word2_10x3(..)
   ) where
 import Control.Monad (when)
 import Foreign

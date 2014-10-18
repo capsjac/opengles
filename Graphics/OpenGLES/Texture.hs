@@ -2,10 +2,6 @@
 module Graphics.OpenGLES.Texture (
   -- * Texture
   Texture,
-  --TextureColorFormat,
-  --TextureBitLayout,
-  --TextureInternalFormat,
-  --TextureData,
   glLoadKtx,
   glLoadKtxFile,
 
@@ -41,34 +37,35 @@ import Data.IORef
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
 import Graphics.OpenGLES.Internal
+import Graphics.OpenGLES.PixelFormat
 import Graphics.TextureContainer.KTX
 import Foreign.Ptr (castPtr)
 
 -- glo, target, ktx
-data Texture = Texture GLenum GLO (IORef Ktx)
+data Texture a = Texture GLenum (IORef Ktx) GLO
 -- XXX Texture DoubleBufferring
 
-texSlot :: Word32 -> Texture -> GL ()
-texSlot slot (Texture target glo _) = do
-	tex <- readIORef glo >>= return . fst
+newtype Texture3D a = Texture3D (Texture a)
+newtype CubeMap a = CubeMap (Texture a)
+newtype Tex2DArray a = Tex2DArray (Texture a)
+
+-- Iso
+--class Tex a where
+--	fromTexture :: Texture b -> a b
+--instance Tex Texture where
+--	fromTexture = id
+--instance Tex Texture3D where
+--	fromTexture = Texture3D
+--instance Tex CubeMap where
+--	fromTexture = CubeMap
+--instance Tex Tex2DArray where
+--	fromTexture = Tex2DArray
+
+texSlot :: Word32 -> Texture a -> GL ()
+texSlot slot (Texture target _ glo) = do
+	tex <- getObjId glo
 	glActiveTexture (0x84C0 + slot) -- GL_TEXTURE_0 + slot
 	glBindTexture target tex
-
-data TextureColorFormat = ALPHA | RGB | RGBA | LUMINANCE | LUMINANCE_ALPHA
-
-data TextureBitLayout = UByte | US565 | US444 | US5551
-	-- | ES 3.0
-	| Byte | UShort | Short | UInt | Int | HalfFloat | Float | US4444 | UI2_10_10_10Rev | UI24_8 | UI_10f11f11fRev | UI5999Rev | F32UI24_8Rev
-
-data TextureInternalFormat = Alpha | Rgb | Rgba | Luminance | LuminanceAlpha
-	-- 3.0
-	| R8 | R8i | R8ui | R8snorm | R16i | R16ui | R16f | R32i | R32ui | R32f
-	| Rg8 | Rg8i | Rg8ui | Rg8snorm | Rg16i | Rg16ui | Rg16f | Rg32i | Rg32ui | Rg32f
-	| Rgb8 | Rgb8i | Rgb8ui | Rgb8snorm | Rgb16i | Rgb16ui | Rgb16f | Rgb32i | Rgb32ui | Rgb32f
-	| Rgba8 | Rgba8i | Rgba8ui | Rgba8snorm | Rgba16i | Rgba16ui | Rgba16f | Rgba32i | Rgba32ui | Rgba32f
-	| Rgb5a1 | Rgb565 | Rgb9e5 | Rgb10a2 | Rgb10a2ui | Srgb8 | Rgba4 | Srgb8Alpha8
-	| R11fG11fB10f | DepthComponent16 | DepthComponent24 | DepthComponent32
-	| Depth24Stencil8 | Depth32fStencil8
 
 data TextureData =
 	  PlainTexture
@@ -82,17 +79,17 @@ data TextureData =
 -- | Load a GL Texture object from Ktx texture container.
 -- See <https://github.com/KhronosGroup/KTX/blob/master/lib/loader.c>
 -- TODO: reject 2DArray/3D texture if unsupported
-glLoadKtx :: Maybe Texture -> Ktx -> GL Texture
+glLoadKtx :: Maybe (Texture a) -> Ktx -> GL (Texture a)
 glLoadKtx oldtex ktx@Ktx{..} = do
 	--putStrLn.show $ ktx
 	let newTexture target = case oldtex of
-		Just (Texture _ glo ref) -> do
+		Just (Texture _ ref glo) -> do
 			writeIORef ref ktx
-			readIORef glo >>= glBindTexture target . fst
-			return (Texture target glo ref)
+			glBindTexture target =<< getObjId glo
+			return (Texture target ref glo)
 		Nothing -> Texture target
-			<$> newGLO glGenTextures (glBindTexture target) glDeleteTextures
-			<*> newIORef ktx
+			<$> newIORef ktx
+			<*> newGLO glGenTextures glDeleteTextures (glBindTexture target)
 	case checkKtx ktx of
 		Left msg -> glLog (msg ++ ": " ++ ktxName) >> newTexture 0
 		Right (comp, target, genmip) -> do
@@ -154,7 +151,7 @@ glLoadKtx oldtex ktx@Ktx{..} = do
 				void $ showError $ "glGenerateMipmap " ++ ktxName
 			return tex
 
-glLoadKtxFile :: FilePath -> GL Texture
+glLoadKtxFile :: FilePath -> GL (Texture a)
 glLoadKtxFile path = ktxFromFile path >>= glLoadKtx Nothing
 
 -- glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
@@ -245,10 +242,10 @@ tiledRepeat = WrapMode 0x2901
 clampToEdge = WrapMode 0x812F
 mirroredRepeat = WrapMode 0x8370
 
-setSampler :: Texture -> Sampler -> GL ()
-setSampler (Texture target glo _) (Sampler (WrapMode s, WrapMode t, r) a
+setSampler :: Texture a -> Sampler -> GL ()
+setSampler (Texture target _ glo) (Sampler (WrapMode s, WrapMode t, r) a
 		(MagFilter g, MinFilter n)) = do
-	tex <- readIORef glo >>= return . fst
+	tex <- getObjId glo
 	glBindTexture target tex
 	glTexParameteri target 0x2802 s
 	glTexParameteri target 0x2803 t

@@ -26,6 +26,9 @@ import System.IO.Unsafe (unsafePerformIO)
 -- bufferArchive = unsafePerformIO $ newIORef []
 -- addCompiledProgramResources
 
+frameCounter :: IORef Int
+frameCounter = unsafePerformIO $ newIORef 0
+
 -- ** Logging
 
 errorQueue :: Chan String
@@ -55,65 +58,120 @@ getError = unMarshal <$> glGetError
 showError :: String -> GL Bool
 showError location = do
 	putStrLn location -- tmp
-	getError >>= maybe (return False)
-		(\err -> do
-			glLog ("E " ++ location ++ ": " ++ show err)
-			return True )
+	getError >>= maybe (return False) (\err -> do
+		glLog ("E " ++ location ++ ": " ++ show err)
+		return True )
 
 -- ** GL Object management
+type GLO = IORef GLObj
+data GLObj = GLObj GLuint (GL GLObj) (ForeignPtr GLuint)
 
-type GLO = IORef (GLuint, ForeignPtr GLuint)
+getObjId glo = fmap go (readIORef glo)
+	where go (GLObj i _ _) = i
 
 instance Show GLO where
-	show ref = show . unsafePerformIO $ readIORef ref
+	show = show . unsafePerformIO . getObjId
 
 newGLO
 	:: (GLsizei -> Ptr GLuint -> GL ())
-	-> (GLuint -> GL ())
 	-> (GLsizei -> Ptr GLuint -> GL ())
+	-> (GLuint -> GL ())
 	-> GL GLO
-newGLO gen bind del = do
+newGLO gen del init = do
 	ref <- newIORef undefined
-	genObj ref gen bind del
+	writeIORef ref =<< genObj gen del init
+	-- addToGLOMS ref
 	return ref
 
 -- | genObj glo glGenBuffers glDeleteBuffers
 genObj
-	:: GLO
+	:: (GLsizei -> Ptr GLuint -> GL ())
 	-> (GLsizei -> Ptr GLuint -> GL ())
 	-> (GLuint -> GL ())
-	-> (GLsizei -> Ptr GLuint -> GL ())
-	-> GL GLuint
-genObj ref genObjs bindObj delObjs = do
+	-> GL GLObj
+genObj genObjs delObjs initObj = do
 	fp <- mallocForeignPtr
 	withForeignPtr fp $ \ptr -> do
 		genObjs 1 ptr
 		showError "genObj"
 		obj <- peek ptr
-		writeIORef ref (obj, fp)
 		addForeignPtrFinalizer fp $ do
-			(obj, _) <- readIORef ref
+			-- XXX check whether context is valud or not
 			with obj $ \ptr -> do
 				delObjs 1 ptr
 				void $ showError "delObj"
-		bindObj obj
-		return obj
+		initObj obj
+		return $ GLObj obj (genObj genObjs delObjs initObj) fp
+
+
+-- ** Types
+-- VertexArray
+-- 2.0
+newtype HalfFloat = HalfFloat Word16 deriving (Num,Storable)
+newtype FixedFloat = FixedFloat Int32 deriving (Num,Storable)
+-- 3.0
+newtype Int2_10x3 = Int210x3 Int32 deriving (Num,Storable)
+newtype Word2_10x3 = Word2_10x3 Int32 deriving (Num,Storable)
+
+-- Renderbuffer
+-- 2.0
+newtype Word4444 = Word4444 Word16 deriving (Num,Storable)
+newtype Word5551 = Word5551 Word16 deriving (Num,Storable)
+newtype Word565 = Word565 Word16 deriving (Num,Storable)
+-- 3.0
+newtype Word10f11f11f = Word10f11f11f Word32 deriving (Num,Storable)
+newtype Word5999 = Word5999 Word32 deriving (Num,Storable)
+newtype Word24_8 = Word24_8 Word32 deriving (Num,Storable)
+newtype FloatWord24_8 = FloatWord24_8 (Float, Word32)
+
+class GLType a where
+	glType :: m a -> Word32
+
+instance GLType Int8 where glType _ = 0x1400
+instance GLType Word8 where glType _ = 0x1401
+instance GLType Int16 where glType _ = 0x1402
+instance GLType Word16 where glType _ = 0x1403
+instance GLType Int32 where glType _ = 0x1404
+instance GLType Word32 where glType _ = 0x1405
+
+instance GLType Float where glType _ = 0x1406
+instance GLType HalfFloat where glType _ = 0x140B
+instance GLType FixedFloat where glType _ = 0x140C
+instance GLType Int2_10x3 where glType _ = 0x8D9F
+instance GLType Word2_10x3 where glType _ = 0x8368
+
+instance GLType Word4444 where glType _ = 0x8033
+instance GLType Word5551 where glType _ = 0x8034
+instance GLType Word565 where glType _ = 0x8363
+instance GLType Word10f11f11f where glType _ = 0x8C3B
+instance GLType Word5999 where glType _ = 0x8C3E
+instance GLType Word24_8 where glType _ = 0x84FA
+instance GLType FloatWord24_8 where glType _ = 0x8DAD
+
+r,rg,rgb,rgba,r_integer,rg_integer,rgb_integer,rgba_integer,
+	depth_component,depth_stencil :: GLenum
+rgb = 0x1907
+rgba = 0x1908
+depth_component = 0x1902
+
+r = 0x1903
+rg = 0x8227
+rg_integer = 0x8228
+r_integer = 0x8D94
+rgb_integer = 0x8D98
+rgba_integer = 0x8D99
+depth_stencil = 0x84F9
 
 
 -- ** Buffer
 
--- forall s. ST s a -> a
--- Buffer usage [GLtype] stride id (latestArray, isBufferSynced)
--- DoubleBuffer BufferUsage GLO GLO (IORef (Bool, GLArray a, GLArray a))
-data Buffer a =
-	Buffer BufferUsage GLO (IORef (StorableArray Int a))
+-- Buffer usage id (latestArray or length)
+data Buffer a = Buffer 	(IORef (Either (StorableArray Int a) Int)) GLO
+-- DoubleBuffer GLO GLO (IORef (GLArray a))
 
 newtype BufferUsage = BufferUsage GLenum
 
 newtype BufferSlot = BufferSlot GLenum
-
-newBuffer = newGLO glGenBuffers (glBindBuffer 0x8892) glDeleteBuffers
-
 
 -- ** DrawMode
 
@@ -235,7 +293,7 @@ postLink progname numShaders prog pid
 		vars <- getActiveVariables pid
 		putStrLn . show $ vars
 		fp <- newForeignPtr nullPtr (glDeleteProgram pid)
-		writeIORef (programGLO prog) (pid, fp)
+		writeIORef (programGLO prog) (GLObj pid (error "not impl: Program implicit recompilation") fp)
 		let msg = "Successfully linked " ++ progname ++ "!" ++ info'
 		glLog msg
 		progressLogger (numShaders + 1) msg Nothing
@@ -398,27 +456,6 @@ class Storable b => AttrStruct b a p | a -> p where
 -- (glo, init)
 newtype VertexArray p = VertexArray (GLO, GL ())
 
-newtype HalfFloat = HalfFloat Word16 deriving (Num,Read,Show,Storable)
-newtype FixedFloat = FixedFloat Int32 deriving (Num,Read,Show,Storable)
-newtype Int10x3_2 = Int10x3_2 Int32 deriving (Num,Read,Show,Storable)
-newtype Word10x3_2 = Word10x3_2 Int32 deriving (Num,Read,Show,Storable)
-
-class GLType a where
-	glType :: m a -> Word32
-
-instance GLType Int8 where glType _ = 0x1400
-instance GLType Word8 where glType _ = 0x1401
-instance GLType Int16 where glType _ = 0x1402
-instance GLType Word16 where glType _ = 0x1403
-instance GLType Int32 where glType _ = 0x1404
-instance GLType Word32 where glType _ = 0x1405
-
-instance GLType Float where glType _ = 0x1406
-instance GLType HalfFloat where glType _ = 0x140B
-instance GLType FixedFloat where glType _ = 0x140C
-instance GLType Int10x3_2 where glType _ = 0x8D9F
-instance GLType Word10x3_2 where glType _ = 0x8368
-
 
 -- ** Vertex Picker
 
@@ -427,11 +464,11 @@ newtype VertexPicker = VertexPicker (GLenum -> GL Bool)
 class VertexIx a where
 	vxix :: m a -> (GLenum, GLint)
 instance VertexIx Word8 where
-	vxix = const (0x1401, 1)
+	vxix _ = (0x1401, 1)
 instance VertexIx Word16 where
-	vxix = const (0x1403, 2)
+	vxix _ = (0x1403, 2)
 instance VertexIx Word32 where
-	vxix = const (0x1405, 4)
+	vxix _ = (0x1405, 4)
 
 
 -- ** Draw Operation
@@ -447,4 +484,18 @@ drawQueue :: Chan (GL ())
 drawQueue = unsafePerformIO newChan
 {-# NOINLINE drawQueue #-}
 
+
+-- ** Framebuffer
+
+data Framebuffer = Framebuffer (IORef (V2 GLsizei)) GLO
+data Renderbuffer a = Renderbuffer GLint GLenum (IORef (V2 GLsizei)) GLO
+
+class Attachable a b where
+	glAttachToFramebuffer :: GLenum -> a b -> IORef (V2 GLsizei) -> GL ()
+
+defaultFramebuffer :: Framebuffer
+defaultFramebuffer = unsafePerformIO $ do
+	glo <- newIORef $ GLObj 0 undefined undefined
+	dummy <- newIORef undefined
+	return $ Framebuffer dummy glo
 

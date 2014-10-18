@@ -83,8 +83,8 @@ data SomeObj = SomeObj
 
 mkSomeObj :: Billboard -> GL SomeObj
 mkSomeObj prog@Billboard{..} = do
-	posBuf <- glLoadList app2gl (0,3) posData
-	uvBuf <- glLoadList app2gl (0,3) uvData
+	posBuf <- glLoad app2gl (posData,4::Int)
+	uvBuf <- glLoad app2gl uvData
 	vao <- glVA [ pos &= posBuf, uv &= uvBuf]
 	return SomeObj {..}
 

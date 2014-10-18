@@ -118,6 +118,7 @@ stopGL = do
 		Just _ -> nop
 		Nothing -> waitGLThread
 	waitGLThread
+	writeIORef frameCounter 0
 	putStrLn "Rendering has stopped."
 
 --destroyGL :: IO ()
@@ -127,7 +128,9 @@ endFrameGL :: IO ()
 endFrameGL = withGL go >>= waitFuture >> nop
 	where go = do
 		readIORef drawOrExit >>= \case
-			Just eglSwapBuffer -> eglSwapBuffer
+			Just eglSwapBuffer -> do
+				eglSwapBuffer
+				modifyIORef frameCounter (+1)
 			Nothing -> myThreadId >>= killThread
 
 runGL :: GL () -> IO ()
@@ -166,6 +169,12 @@ finishCommands = runGL glFinish
 nop :: Monad m => m ()
 nop = return ()
 
+glFrameCount :: IO Int
+glFrameCount = readIORef frameCounter
+
+glFlipping :: IO Bool
+glFlipping = fmap odd glFrameCount
+
 
 -- * Drawing
 
@@ -192,12 +201,12 @@ glDraw :: Typeable p
 	-> GL Bool
 glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 		(VertexArray (vao, setVA)) (VertexPicker picker) = do
-	glUseProgram . fst =<< readIORef pobj
+	glUseProgram =<< getObjId pobj
 	sequence setState
 	sequence unifs
 	case extVAO of
 		Nothing -> setVA
-		Just (_, bind, _) -> readIORef vao >>= bind . fst
+		Just (_, bind, _) -> getObjId vao >>= bind
 	--glValidate prog
 	picker mode
 
@@ -251,7 +260,7 @@ glCompile tf shaders progressLogger = do
 -- program can execute given the current OpenGL state.
 glValidate :: Program p -> GL String
 glValidate prog = alloca $ \intptr -> do
-	(pid, _) <- readIORef $ programGLO prog
+	pid <- getObjId $ programGLO prog
 	glValidateProgram pid
 	glGetProgramiv pid c_info_log_length intptr
 	len <- fmap fromIntegral $ peek intptr
@@ -330,7 +339,7 @@ glVA attrs = do
 	glo <- case extVAO of
 		Nothing -> return (error "GLO not used")
 		Just (gen, bind, del) ->
-			newGLO gen bind del <* setVA
+			newGLO gen del (\i-> bind i >> setVA)
 	return $ VertexArray (glo, setVA)
 
 

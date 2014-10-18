@@ -1,0 +1,137 @@
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+module Graphics.OpenGLES.Framebuffer where
+import Control.Applicative
+import Control.Monad (when)
+import Data.IORef
+import Foreign
+import Graphics.OpenGLES.Base
+import Graphics.OpenGLES.Env (hasES3)
+import Graphics.OpenGLES.Internal
+import Graphics.OpenGLES.PixelFormat
+import Linear.Vect
+
+-- |
+-- New Renderbuffer with specified sample count and dimentions.
+glRenderbuffer :: forall a b. InternalFormat a b => Int32 -> GL (V2 Int32) -> GL (Renderbuffer b)
+glRenderbuffer sample askSize = do
+	let (_, _, internalformat) = ifmt ([] :: [(a,b)])
+	unsafeRenderbuffer sample askSize internalformat
+
+unsafeRenderbuffer :: Int32 -> GL (V2 Int32) -> GLenum -> GL (Renderbuffer a)
+unsafeRenderbuffer samples askSize internalformat = do
+	let sample = if hasES3 then samples else 0
+	dim <- newIORef undefined
+	Renderbuffer samples internalformat dim
+		<$> (newGLO glGenRenderbuffers glDeleteRenderbuffers $ \rb -> do
+			glBindRenderbuffer 0x8D41 rb
+			win@(V2 w h) <- askSize
+			writeIORef dim win
+			case sample of
+				0 -> glRenderbufferStorage 0x8D41 internalformat w h
+				_ -> glRenderbufferStorageMultisample 0x8D41 samples internalformat w h
+			-- XXX restore content on EGL_CONTEXT_LOST if possible
+			)
+
+instance Attachable Renderbuffer a where
+	glAttachToFramebuffer attachment (Renderbuffer _ _ dim glo) maxDims = do
+		rb <- getObjId glo
+		V2 w h <- readIORef dim
+		modifyIORef maxDims (\(V2 mw mh)-> V2 (max w mw) (max h mh))
+		glFramebufferRenderbuffer 0x8D40 attachment 0x8D41 rb
+
+--instance Attachable Texture a where
+--	glAttachToFramebuffer attachment (Texture textgt ktx glo) maxDims = do
+--		tex <- getObjId glo
+--		let V2 w h = ktx...
+--		modifyIORef maxDims (\(V2 mw mh)-> V2 (max w mw) (max h mh))
+--		case textgt of
+			-- Texture2D
+			-- CubeMap
+--			glFramebufferTexture2D 0x8D40 attachment textgt tex level
+			-- Texture3D
+			-- Texture2DArray
+--			glFramebufferTextureLayer 0x8D40 attachment tex level layer
+
+newtype DepthStencil = DepthStencil (IORef (V2 Int32) -> GL ())
+data CR = forall a c. (Attachable a c, ColorRenderable c) => CR (a c)
+
+colorOnly :: DepthStencil
+colorOnly = DepthStencil (const $ return ())
+
+depthImage :: (Attachable a d, DepthRenderable d) => a d -> DepthStencil
+depthImage = DepthStencil . glAttachToFramebuffer 0x8D00
+
+stencilImage :: (Attachable a s, StencilRenderable s) => a s -> DepthStencil
+stencilImage = DepthStencil . glAttachToFramebuffer 0x8D20
+
+depthStencil :: (Attachable a r, DepthRenderable r, StencilRenderable r) => a r -> DepthStencil
+depthStencil = DepthStencil . glAttachToFramebuffer 0x821A
+
+-- | New 'Framebuffer' from specified 'ColorRenderable' and 'DepthStencil'
+glFramebuffer :: [CR] -> DepthStencil -> GL Framebuffer
+glFramebuffer colours (DepthStencil runds) = do
+	maxDims <- newIORef (V2 0 0)
+	Framebuffer maxDims
+		<$> (newGLO glGenFramebuffers glDeleteFramebuffers $ \fb -> do
+			glBindFramebuffer 0x8D40 fb
+			sequence_ $ zipWith (go maxDims) [0x8CE0..] colours
+			runds maxDims
+			)
+	where go maxDims attachment (CR cr) =
+		glAttachToFramebuffer attachment cr maxDims
+
+bindFb :: Framebuffer -> GL ()
+bindFb (Framebuffer _ glo) =
+	getObjId glo >>= glBindFramebuffer 0x8D40
+
+-- XXX maybe slow (untested)
+withFb :: Framebuffer -> GL a -> GL a
+withFb fb io = do
+	-- GL_FRAMEBUFFER_BINDING
+	fb' <- alloca $ \p -> glGetIntegerv 0x8CA6 p >> peek p
+	bindFb fb
+	result <- io
+	glBindFramebuffer 0x8D40 (fromIntegral fb')
+	return result
+
+-- XXX maybe slow (untested)
+getViewport :: GL (V4 Int32)
+getViewport = allocaArray 4 $ \p -> do
+	glGetIntegerv 0x0BA2 p -- GL_VIEWPORT
+	[x,y,w,h] <- peekArray 4 p
+	return $ V4 x y w h
+
+-- |
+-- Cliping current framebuffer. Note that origin is left-bottom.
+setViewport :: V4 Int32 -> GL ()
+setViewport (V4 x y w h) = glViewport x y w h
+
+withViewport :: V4 Int32 -> GL a -> GL a
+withViewport vp io = do
+	old <- getViewport
+	setViewport vp
+	result <- io
+	setViewport old
+	return result
+
+-- XXX maybe slow (untested)
+getDepthRange :: GL (V2 Float)
+getDepthRange = allocaArray 2 $ \p -> do
+	glGetFloatv 0x0B70 p -- GL_DEPTH_RANGE
+	[n,f] <- peekArray 2 p
+	return $ V2 n f
+
+setDepthRange :: V2 Float -> GL ()
+setDepthRange (V2 near far) = glDepthRangef near far
+
+withDepthRange :: V2 Float -> GL a -> GL a
+withDepthRange dr io = do
+	old <- getDepthRange
+	setDepthRange dr
+	result <- io
+	setDepthRange old
+	return result
+
