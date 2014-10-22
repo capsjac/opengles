@@ -1,59 +1,143 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+
 module Graphics.OpenGLES.Types (
+
   -- * Shading Language Base Types
+  M23, M24, M32, M34, M42,
   Vec2, Vec3, Vec4,
-  BVec2, BVec3, BVec4,
+  -- BVec2, BVec3, BVec4,
   IVec2, IVec3, IVec4,
   UVec2, UVec3, UVec4,
   Mat2, Mat3, Mat4,
   Mat2x3, Mat2x4, Mat3x2,
   Mat3x4, Mat4x2, Mat4x3,
+  
+  -- * Vertex Attribute Array Source Datatypes
+  HalfFloat(..), FixedFloat(..),
+  Int2_10x3(..), Word2_10x3(..),
+
+  -- * Texture Pixel Formats
+  Word4444(..), Word5551(..), Word565(..),
+  Word10f11f11f(..), Word5999(..), Word24_8(..),
+  FloatWord24_8(..),
+
+  -- * Type-Level Utilities
+  SizeOf, Aligned, Stride, castGL,
 
   -- * Uniform Variable
   Uniform, UnifVal,
   
   -- * Vertex Attribute
-  Attrib, ShaderAttribute, AttrStruct,
-  
-  -- * Vertex Attribute Array Source Datatypes
-  HalfFloat(..), FixedFloat(..),
-  Int2_10x3(..), Word2_10x3(..)
+  Attrib, VertexAttribute,
+  AttrElement, Vectorize, VDim,
+  VertexAttributeArray, AttrStruct,
+
+  GLStorable(..)
   ) where
+
+import Control.Applicative
+import Control.Lens.Indexed (FoldableWithIndex, iforM_)
+import Control.Lens.Getter ((^.))
 import Control.Monad (when)
+import Data.Distributive
+import Data.Proxy
 import Foreign
-import Linear.Class (Transpose, transpose)
-import Linear.Vect
-import Linear.Mat
+import GHC.TypeLits
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Internal
+import Linear
+import Unsafe.Coerce
 
-
+type M23 a = V2 (V3 a)
+type M24 a = V2 (V4 a)
+type M32 a = V3 (V2 a)
+type M34 a = V3 (V4 a)
+type M42 a = V4 (V2 a)
 type Vec2 = V2 Float
 type Vec3 = V3 Float
 type Vec4 = V4 Float
-type BVec2 = V2 Bool
-type BVec3 = V3 Bool
-type BVec4 = V4 Bool
+--type BVec2 = V2 Bool
+--type BVec3 = V3 Bool
+--type BVec4 = V4 Bool
 type IVec2 = V2 Int32
 type IVec3 = V3 Int32
 type IVec4 = V4 Int32
 type UVec2 = V2 Word32
 type UVec3 = V3 Word32
 type UVec4 = V4 Word32
-type Mat2 = M2 Float
-type Mat3 = M3 Float
-type Mat4 = M4 Float
-type Mat2x3 = M2x3 Float
-type Mat2x4 = M2x4 Float
-type Mat3x2 = M3x2 Float
-type Mat3x4 = M3x4 Float
-type Mat4x2 = M4x2 Float
-type Mat4x3 = M4x3 Float
+type Mat2 = M22 Float
+type Mat3 = M33 Float
+type Mat4 = M44 Float
+type Mat2x3 = M23 Float
+type Mat2x4 = M24 Float
+type Mat3x2 = M32 Float
+type Mat3x4 = M34 Float
+type Mat4x2 = M42 Float
+type Mat4x3 = M43 Float
+
+type family SizeOf (f :: *) :: Nat where
+	SizeOf Float = 4
+	SizeOf HalfFloat = 2
+	SizeOf FixedFloat = 4
+	SizeOf Word8 = 1
+	SizeOf Word16 = 2
+	SizeOf Word32 = 4
+	SizeOf Int8 = 1
+	SizeOf Int16 = 2
+	SizeOf Int32 = 4
+	SizeOf Int2_10x3 = 4
+	SizeOf Word2_10x3 = 4
+	SizeOf Word4444 = 2
+	SizeOf Word5551 = 2
+	SizeOf Word10f11f11f = 4
+	SizeOf Word5999 = 4
+	SizeOf Word24_8 = 4
+	SizeOf FloatWord24_8 = 8
+	SizeOf (V2 a) = 2 * SizeOf a
+	SizeOf (V3 a) = 3 * SizeOf a
+	SizeOf (V4 a) = 4 * SizeOf a
+
+type family Aligned (x :: Nat) :: Nat where
+	Aligned 0 = 0
+	Aligned 1 = 4
+	Aligned 2 = 4
+	Aligned 3 = 4
+	Aligned x = 4 + Aligned (x - 4)
+
+type family Stride (list :: [*]) :: Nat where
+	Stride '[] = 0
+	Stride (x ': xs) = Aligned (SizeOf x) + Stride xs
+
+castGL ::
+	CmpNat (Aligned (SizeOf x)) (Aligned (SizeOf y)) ~ EQ
+	=> p x -> p y
+castGL = unsafeCoerce
+
+--type family If (p :: Bool) (t :: Nat) (f :: Nat) :: Nat where
+--	If True x y = x
+--	If False x y = y
+
+--type family Sum (l :: [Nat]) :: Nat
+--type instance Sum '[] = 0
+--type instance Sum (x ': xs) = x + Sum xs
+
+--type family Map (f :: * -> *) (xs :: [*]) :: [*]
+--type instance Map f '[] = '[]
+--type instance Map f (x ': xs) = f x ': Map f xs
+
+--type family ImageOf
+--type instance ImageOf Rgba8 = V4 Word8
+--type instance ImageOf Rgba4 = Word16
+--type instance ImageOf Rgba4FromRgba8 = Word16
 
 
 --instance UnifVal Float where
@@ -76,18 +160,12 @@ Uniform(UVec2,(V2 x y),2ui,x y)
 Uniform(UVec3,(V3 x y z),3ui,x y z)
 Uniform(UVec4,(V4 x y z w),4ui,x y z w)
 
---instance UnifVal [Float] where
---	glUniform (loc, len, ptr) values = do
---		let len' = fromIntegral len
---		pokeArray (castPtr ptr :: Ptr Float) (take len' values)
---		glUniform1fv loc len (castPtr ptr)
-
+{-# NOINLINE pokeUniformArray #-}
 pokeUniformArray
 	:: Storable b => (GLint -> GLsizei -> Ptr a -> GL ())
 	-> (GLint, GLsizei, Ptr ()) -> [b] -> GL ()
 pokeUniformArray glUniformV (loc, len, ptr) values = do
-	let len' = fromIntegral len
-	pokeArray (castPtr ptr :: Ptr b) (take len' values)
+	pokeArray (castPtr ptr) (take (fromIntegral len) values)
 	glUniformV loc len (castPtr ptr)
 
 instance UnifVal [Float] where glUniform = pokeUniformArray glUniform1fv
@@ -103,185 +181,76 @@ instance UnifVal [UVec2] where glUniform = pokeUniformArray glUniform2uiv
 instance UnifVal [UVec3] where glUniform = pokeUniformArray glUniform3uiv
 instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
 
--- 'transpose' argument must be GL_FALSE in GL ES 2.0
-pokeMatrix :: (Transpose a b, Storable b)
-	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
-pokeMatrix glUniformMatrixV (loc, 1, ptr) matrix = do
-	poke (castPtr ptr :: Ptr b) (transpose matrix)
-	glUniformMatrixV loc 1 0 (castPtr ptr)
-pokeMatrix _ _ _ = return () -- poke to nullPtr
+class UnifMat a where
+	glUnifMat :: GLint -> GLsizei -> GLboolean -> Ptr a -> GL ()
+castMat a b c d e = a b c d (castPtr e)
+
+instance UnifMat Mat2 where glUnifMat = castMat glUniformMatrix2fv
+instance UnifMat Mat3 where glUnifMat = castMat glUniformMatrix3fv
+instance UnifMat Mat4 where glUnifMat = castMat glUniformMatrix4fv
+-- /GL_NV_non_square_matrices/ seems ignorable for now.
+-- http://delphigl.de/glcapsviewer/gles_extensions.php
+instance UnifMat Mat2x3 where glUnifMat = castMat glUniformMatrix2x3fv
+instance UnifMat Mat2x4 where glUnifMat = castMat glUniformMatrix2x4fv
+instance UnifMat Mat3x2 where glUnifMat = castMat glUniformMatrix3x2fv
+instance UnifMat Mat3x4 where glUnifMat = castMat glUniformMatrix3x4fv
+instance UnifMat Mat4x2 where glUnifMat = castMat glUniformMatrix4x2fv
+instance UnifMat Mat4x3 where glUnifMat = castMat glUniformMatrix4x3fv
+
+-- | Matrix __Not tested!!!__
+instance (Distributive g, Functor f, UnifMat (f (g a)), Storable (g (f a))) =>
+		UnifVal (f (g a)) where
+		glUniform (loc, _, ptr) val = glUniform (loc, 1, ptr) [val]
+-- | Array of matrix __Not tested!!!__
+instance (Distributive g, Functor f, UnifMat (f (g a)), Storable (g (f a))) =>
+		UnifVal [f (g a)] where
+	-- 'transpose' argument must be GL_FALSE in GL ES 2.0.
+	-- GL ES 3.0+ supports transpose.
+	glUniform (loc, len, ptr) matrices = do
+		pokeArray (castPtr ptr) $ map distribute $ take (fromIntegral len) matrices
+		glUnifMat loc len 0 (castPtr ptr :: Ptr (f (g a)))
 
 
-instance UnifVal Mat2 where glUniform = pokeMatrix glUniformMatrix2fv
-instance UnifVal Mat3 where glUniform = pokeMatrix glUniformMatrix3fv
-instance UnifVal Mat4 where glUniform = pokeMatrix glUniformMatrix4fv
+-- Arrays of attribute is not allowed in GLSL ES
 
--- GL ES 3.0+ supports transpose
-pokeMatrixT :: Storable a
-	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-	-> (GLint, GLsizei, Ptr ()) -> a -> GL ()
-pokeMatrixT glUniformMatrixV (loc, 1, ptr) matrix = do
-	poke (castPtr ptr :: Ptr a) matrix
-	glUniformMatrixV loc 1 1 (castPtr ptr)
-pokeMatrixT _ _ _ = return ()
+instance VertexAttribute Float where
+	glVertexAttrib ix x = glVertexAttrib1f ix x
+instance VertexAttribute Vec2 where
+	glVertexAttrib ix (V2 x y) = glVertexAttrib2f ix x y
+instance VertexAttribute Vec3 where
+	glVertexAttrib ix (V3 x y z) = glVertexAttrib3f ix x y z
+instance VertexAttribute Vec4 where
+	glVertexAttrib ix (V4 x y z w) = glVertexAttrib4f ix x y z w
+instance VertexAttribute Int32 where
+	glVertexAttrib ix x = glVertexAttribI4i ix x 0 0 1
+instance VertexAttribute IVec2 where
+	glVertexAttrib ix (V2 x y) = glVertexAttribI4i ix x y 0 1
+instance VertexAttribute IVec3 where
+	glVertexAttrib ix (V3 x y z) = glVertexAttribI4i ix x y z 1
+instance VertexAttribute IVec4 where
+	glVertexAttrib ix (V4 x y z w) = glVertexAttribI4i ix x y z w
+instance VertexAttribute Word32 where
+	glVertexAttrib ix x = glVertexAttribI4ui ix x 0 0 1
+instance VertexAttribute UVec2 where
+	glVertexAttrib ix (V2 x y) = glVertexAttribI4ui ix x y 0 1
+instance VertexAttribute UVec3 where
+	glVertexAttrib ix (V3 x y z) = glVertexAttribI4ui ix x y z 1
+instance VertexAttribute UVec4 where
+	glVertexAttrib ix (V4 x y z w) = glVertexAttribI4ui ix x y z w
+instance VertexAttribute a => VertexAttribute (V1 a) where
+	glVertexAttrib ix (V1 x) = glVertexAttrib ix x
 
--- http://delphigl.de/glcapsviewer/gles_extensions.php 
-instance UnifVal Mat2x3 where glUniform = pokeMatrixT glUniformMatrix2x3fv
-instance UnifVal Mat2x4 where glUniform = pokeMatrixT glUniformMatrix2x4fv
-instance UnifVal Mat3x2 where glUniform = pokeMatrixT glUniformMatrix3x2fv
-instance UnifVal Mat3x4 where glUniform = pokeMatrixT glUniformMatrix3x4fv
-instance UnifVal Mat4x2 where glUniform = pokeMatrixT glUniformMatrix4x2fv
-instance UnifVal Mat4x3 where glUniform = pokeMatrixT glUniformMatrix4x3fv
+-- | Matrices __Not tested!!!__
+instance (Functor f, VertexAttribute (f Float), FoldableWithIndex (E V4) g,
+		Distributive g) => VertexAttribute (f (g Float)) where
+	glVertexAttrib ix m = iforM_ (distribute m) $
+		\(E i) v -> do
+			let index = ix + (V4 0 1 2 3)^.i
+			glDisableVertexAttribArray index
+			glVertexAttrib index v
 
--- 'transpose' argument must be GL_FALSE in GL ES 2.0
-pokeMatrices :: (Transpose a b, Storable b)
-	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
-pokeMatrices glUniformMatrixV (loc, len, ptr) matrices = do
-	let len' = fromIntegral len
-	pokeArray (castPtr ptr :: Ptr b)
-		(map transpose $ take len' matrices) -- maybe slow
-	glUniformMatrixV loc len 0 (castPtr ptr)
-
-instance UnifVal [Mat2] where glUniform = pokeMatrices glUniformMatrix2fv
-instance UnifVal [Mat3] where glUniform = pokeMatrices glUniformMatrix3fv
-instance UnifVal [Mat4] where glUniform = pokeMatrices glUniformMatrix4fv
-
--- GL ES 3.0+ supports transpose
-pokeMatricesT :: Storable a
-	=> (GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-	-> (GLint, GLsizei, Ptr ()) -> [a] -> GL ()
-pokeMatricesT glUniformMatrixV (loc, len, ptr) matrices = do
-	let len' = fromIntegral len
-	pokeArray (castPtr ptr :: Ptr a) (take len' matrices)
-	glUniformMatrixV loc len 1 (castPtr ptr)
-
-instance UnifVal [Mat2x3] where glUniform = pokeMatricesT glUniformMatrix2x3fv
-instance UnifVal [Mat2x4] where glUniform = pokeMatricesT glUniformMatrix2x4fv
-instance UnifVal [Mat3x2] where glUniform = pokeMatricesT glUniformMatrix3x2fv
-instance UnifVal [Mat3x4] where glUniform = pokeMatricesT glUniformMatrix3x4fv
-instance UnifVal [Mat4x2] where glUniform = pokeMatricesT glUniformMatrix4x2fv
-instance UnifVal [Mat4x3] where glUniform = pokeMatricesT glUniformMatrix4x3fv
-
-
--- Array of attributes is not supported in GLSL ES
-
-instance GenericVertexAttribute a => ShaderAttribute a where
-	glVertexAttrib idx x =
-		with (V4 x 0 0 1) $ glVertexAttrib4v idx
-instance GenericVertexAttribute a => ShaderAttribute (V2 a) where
-	glVertexAttrib idx (V2 x y) =
-		with (V4 x y 0 1) $ glVertexAttrib4v idx
-instance GenericVertexAttribute a => ShaderAttribute (V3 a) where
-	glVertexAttrib idx (V3 x y z) =
-		with (V4 x y z 1) $ glVertexAttrib4v idx
-instance GenericVertexAttribute a => ShaderAttribute (V4 a) where
-	glVertexAttrib idx v4 =
-		with v4 $ glVertexAttrib4v idx
-instance ShaderAttribute Mat2 where
-	glVertexAttrib idx (M2 (V2 a b) (V2 c d)) = do
-		with (V4 a c 0 1) $ glVertexAttrib4v idx
-		with (V4 b d 0 1) $ glVertexAttrib4v (idx + 1)
-instance ShaderAttribute Mat3 where
-	glVertexAttrib idx (M3 (V3 a b c) (V3 d e f) (V3 g h i)) = do
-		with (V4 a d g 1) $ glVertexAttrib4v idx
-		with (V4 b e h 1) $ glVertexAttrib4v (idx + 1)
-		with (V4 c f i 1)  $ glVertexAttrib4v (idx + 2)
-instance ShaderAttribute Mat4 where
-	glVertexAttrib idx (M4 (V4 a b c d) (V4 e f g h) (V4 i j k l) (V4 m n o p)) = do
-		with (V4 a e i m) $ glVertexAttrib4v idx
-		with (V4 b f j n) $ glVertexAttrib4v (idx + 1)
-		with (V4 c g k o) $ glVertexAttrib4v (idx + 2)
-		with (V4 d h l p) $ glVertexAttrib4v (idx + 3)
--- XXX I'm not sure below types are actually supported by the GL
-instance ShaderAttribute Mat3x2 where
-	glVertexAttrib idx (M3x2 a b  c d  e f) = do
-		with (V4 a c e 1) $ glVertexAttrib4v idx
-		with (V4 b d f 1) $ glVertexAttrib4v (idx + 1)
-instance ShaderAttribute Mat4x2 where
-	glVertexAttrib idx (M4x2 a b  c d  e f  g h) = do
-		with (V4 a c e g) $ glVertexAttrib4v idx
-		with (V4 b d f h) $ glVertexAttrib4v (idx + 1)
-instance ShaderAttribute Mat2x3 where
-	glVertexAttrib idx (M2x3 a b c  d e f) = do
-		with (V4 a d 0 1) $ glVertexAttrib4v idx
-		with (V4 b e 0 1) $ glVertexAttrib4v (idx + 1)
-		with (V4 c f 0 1) $ glVertexAttrib4v (idx + 2)
-instance ShaderAttribute Mat4x3 where
-	glVertexAttrib idx (M4x3 a b c  d e f  g h i  j k l) = do
-		with (V4 a d g j) $ glVertexAttrib4v idx
-		with (V4 b e h k) $ glVertexAttrib4v (idx + 1)
-		with (V4 c f i l) $ glVertexAttrib4v (idx + 2)
-instance ShaderAttribute Mat2x4 where
-	glVertexAttrib idx (M2x4 a b c d  e f g h) = do
-		with (V4 a e 0 1) $ glVertexAttrib4v idx
-		with (V4 b f 0 1) $ glVertexAttrib4v (idx + 1)
-		with (V4 c g 0 1) $ glVertexAttrib4v (idx + 2)
-		with (V4 d h 0 1) $ glVertexAttrib4v (idx + 3)
-instance ShaderAttribute Mat3x4 where
-	glVertexAttrib idx (M3x4 a b c d  e f g h  i j k l) = do
-		with (V4 a e i 1) $ glVertexAttrib4v idx
-		with (V4 b f j 1) $ glVertexAttrib4v (idx + 1)
-		with (V4 c g k 1) $ glVertexAttrib4v (idx + 2)
-		with (V4 d h l 1) $ glVertexAttrib4v (idx + 3)
-
--- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
--- XXX Not completed, please add instances here
---(GLuint indx, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* ptr)
-instance AttrStruct Float (Attrib p Float) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $
-			glVertexAttribDivisor idx divisor
-		-- XXX 3.1 spec says normalize is ignored for floating-point types, really?
-		glVertexAttribPointer idx 1 (glType buf) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct Vec2 (Attrib p Vec2) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 2 (glType ([] :: [Float])) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct Vec3 (Attrib p Vec3) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 3 (glType ([] :: [Float])) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct Vec4 (Attrib p Vec4) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 4 (glType ([] :: [Float])) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct Word8 (Attrib p Float) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 1 (glType ([] :: [Word8])) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct (V2 Word8) (Attrib p Vec2) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 4 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct (V3 Word8) (Attrib p Vec3) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 4 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-instance AttrStruct (V4 Word8) (Attrib p Vec4) p where
-	glVertexAttribPtr (Attrib (idx, 1{-size-}, normalized, divisor)) buf = do
-		glEnableVertexAttribArray idx
-		when (divisor /= 0) $ glVertexAttribDivisor idx divisor
-		glVertexAttribPointer idx 2 (glType ([] :: [Word8])) normalized 0 nullPtr
-	glVertexAttribPtr attr buf = glLog $ "Ignoring attirb: " ++ show attr
-
-{-
-class (Storable a, Num a) => AttrElement a where
+-- | The 3rd argument of glVertexAttribI?Pointer
+class GLType a => AttrElement a where
 instance AttrElement Word8
 instance AttrElement Word16
 instance AttrElement Word32
@@ -291,64 +260,90 @@ instance AttrElement Int32
 instance AttrElement Float
 instance AttrElement HalfFloat
 instance AttrElement FixedFloat
+instance AttrElement Int2_10x3
+instance AttrElement Word2_10x3
 
-case splitTyConApp values of
-getrepl (con, args)
-	| con == float = [(1, 4, flo)]
-	| con == t2 = [(2, 2*size, typ)] where [(_,size,typ)] = getrepl $ head args
-	| con == m2 = [(2, 2*size, typ), (2, 2*size, typ)] where [(_,size,typ)] = getrepl . head $ args
-	| con == Int10x3_2 = [(4,4,Int10x3_2)]
-	| otherwise = concatMap getrepl args
-Float
--> [(1, 4, flo)]
-Vec2
--> [(2, 8, flo)]
-Mat2
--> [(2, 8, flo), (2, 8, flo)]
-((,) Word8 Word8)
--> [(1, 4, word8), (1, 4, word8)]
-((,) (M2 Float) (M2 Word8))
--> [(2, 8, flo), (2, 8, flo), (2, 2, word8), (2, 2, word8)]
-Int10x3_2
--> [(4, 4, Int10x3_2)]
-stride = sum $ map snd3 types
-foldl (\offset (size, align, typ)-> glVertexAttribPointer ...>> return offset+align) 0 types
-data = Spl | Mat
-word8 = typeRep (Proxy :: Proxy Word8)
-word16 = typeRep (Proxy :: Proxy Word16)
-word32 = typeRep (Proxy :: Proxy Word32)
-int8 = typeRep (Proxy :: Proxy Int8)
-int16 = typeRep (Proxy :: Proxy Int16)
-int32 = typeRep (Proxy :: Proxy Int32)
-float = typeRep (Proxy :: Proxy Float)
+-- | Temporarily gives a vector representation for type comparison
+type family Vectorize a :: * where
+	Vectorize Int2_10x3 = V4 Int2_10x3
+	Vectorize Word2_10x3 = V4 Word2_10x3
+	Vectorize (f Int2_10x3) = f (V4 Int2_10x3)
+	Vectorize (f Word2_10x3) = f (V4 Word2_10x3)
+	Vectorize (f a) = f a
+	Vectorize a = V1 a
+	-- Float -> (1, GL_GLOAT), Vec2 -> (2, GL_FLOAT)
 
-class Storable a => AttrVal a where
--- scalar
-instance AttrElement a => AttrVal a
--- vector
-instance AttrElement a => AttrVal (V2 a)
-instance AttrElement a => AttrVal (V3 a)
-instance AttrElement a => AttrVal (V4 a)
-instance AttrVal Int10x3_2
-instance AttrVal Word10x3_2
--- matrix
-instance AttrElement a => AttrVal (M2 a)
-instance AttrElement a => AttrVal (M3 a)
-instance AttrElement a => AttrVal (M4 a)
-instance AttrElement a => AttrVal (M2x3 a)
-instance AttrElement a => AttrVal (M2x4 a)
-instance AttrElement a => AttrVal (M3x2 a)
-instance AttrElement a => AttrVal (M3x4 a)
-instance AttrElement a => AttrVal (M4x2 a)
-instance AttrElement a => AttrVal (M4x3 a)
-{-- matrix (colomn major)
-instance AttrVal (T2 Int10x3_2)
-instance AttrVal (T3 Int10x3_2)
-instance AttrVal (T4 Int10x3_2)
-instance AttrVal (T2 Word10x3_2)
-instance AttrVal (T3 Word10x3_2)
-instance AttrVal (T4 Word10x3_2)
--}
+type family VDim v :: Nat where
+	VDim V1 = 1
+	VDim V2 = 2
+	VDim V3 = 3
+	VDim V4 = 4
+
+class VertexAttributeArray attr src where
+	glVertexAttribPtr :: GLuint -> GLint -> GLenum -> GLboolean -> GLsizei -> Ptr (attr, src) -> GL ()
+
+instance VertexAttributeArray Float a where
+	glVertexAttribPtr i d t n s p = glVertexAttribPointer i d t n s (castPtr p)
+
+-- | a = Int/Word32, b = Int/Word 8/16/32
+instance (Integral a, Integral b) => VertexAttributeArray a b where
+	glVertexAttribPtr i d t _ s p = glVertexAttribIPointer i d t s (castPtr p)
+
+instance forall p a b v a' b'.
+	( VertexAttribute a
+	, Vectorize a ~ v a'
+	, Vectorize b ~ v b'
+	, KnownNat (VDim v)
+	--, KnownNat (Aligned (SizeOf b))
+	, AttrElement b'
+	, VertexAttributeArray a' b' )
+	=> AttrStruct (Attrib p a) p b where
+
+	-- 'length' must be 1 (array of atrribute is not allowed.)
+	-- 3.1 spec says 'normalize' is ignored for floating-point types
+	-- such as GL_FIXED
+	-- 'stride' == 0 means 'tightly packed'
+	glVertexBuffer (Attrib (ix, length, normalize, divisor)) buf = do
+		glEnableVertexAttribArray ix
+		when (divisor /= 0) $ glVertexAttribDivisor ix divisor
+		glVertexAttribPointer ix dim typ normalize stride nullPtr
+		where dim = fromIntegral $ natVal (Proxy :: Proxy (VDim v))
+		      typ = glType (Proxy :: Proxy b')
+		      stride = 0 --fromIntegral $ natVal (Proxy :: Proxy (SizeOf b))
+
+-- XXX (V4 Int2_10x3) (V3 Word2_10x3) cannot match here
+instance
+	( VertexAttribute (f (g Float))
+	, Applicative g
+	, FoldableWithIndex (E V4) g
+	, KnownNat (VDim f)
+	, KnownNat (SizeOf (f a))
+	, KnownNat (SizeOf (f (g a))) -- (Aligned (SizeOf (f (g a))))
+	, AttrElement a )
+	=> AttrStruct (Attrib p (f (g Float))) p (f (g a)) where
+
+	glVertexBuffer (Attrib (index, length, normalize, divisor)) buf = do
+		iforM_ (pure () :: g ()) $ \(E e) _ -> do
+			let i = (V4 0 1 2 3)^.e
+			let ix = index + fromIntegral i
+			glEnableVertexAttribArray ix
+			when (divisor /= 0) $ glVertexAttribDivisor ix divisor
+			glVertexAttribPointer ix dim typ normalize stride (plusPtr nullPtr (i * size))
+		where dim = fromIntegral $ natVal (Proxy :: Proxy (VDim f))
+		      typ = glType (Proxy :: Proxy a)
+		      size = fromIntegral $ natVal (Proxy :: Proxy (SizeOf (f a)))
+		      stride = fromIntegral $ natVal (Proxy :: Proxy (SizeOf (f (g a)))) -- (Aligned (SizeOf (f (g a))))
+
+
+-- XXX 4byte alignment
+-- | Transpose matrices
+class Storable a => GLStorable a where
+	pokeArrayGL :: Ptr a -> [a] -> GL ()
+instance (Storable (f (g a)), Storable (g (f a)), VertexAttribute (f (g Float)), Functor f, Distributive g)
+	=> GLStorable (f (g a)) where
+	pokeArrayGL ptr xs = pokeArray (castPtr ptr) (map distribute xs)
+instance Storable a => GLStorable a where
+	pokeArrayGL = pokeArray
 
 --class AttrStruct a where
 --	pokeAll :: Ptr () -> a -> IO ()
@@ -372,23 +367,4 @@ instance AttrVal (T4 Word10x3_2)
 --instance (AttrVal a, AttrVal b, AttrVal c, AttrVal d, AttrVal e, AttrVal f, AttrVal g, AttrVal h) => AttrStruct (a, b, c, d, e, f, g, h)
 --instance (AttrVal a, AttrVal b, AttrVal c, AttrVal d, AttrVal e, AttrVal f, AttrVal g, AttrVal h, AttrVal i) => AttrStruct (a, b, c, d, e, f, g, h, i)
 --instance (AttrVal a, AttrVal b, AttrVal c, AttrVal d, AttrVal e, AttrVal f, AttrVal g, AttrVal h, AttrVal i, AttrVal j) => AttrStruct (a, b, c, d, e, f, g, h, i, j)
-
---instance Storable FixedFloat where
---	sizeOf _ = 4; alignment _ = 4; peek = undefined
---	poke p (FixedFloat x) = poke (castPtr p) x
-
---instance Storable Int10x3_2 where
---	sizeOf _ = 4; alignment _ = 4; peek = undefined
---	poke p (Int10x3_2 x) = poke (castPtr p) x
-
---instance Storable Word10x3_2 where
---	sizeOf _ = 4; alignment _ = 4; peek = undefined
---	poke p (Word10x3_2 x) = poke (castPtr p) x
-
---instance Storable HalfFloat where
---	sizeOf _ = 2; alignment _ = 4; peek = undefined
---	poke p (HalfFloat x) = poke (castPtr p) x
--}
-
-
 

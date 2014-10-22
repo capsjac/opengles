@@ -1,7 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables#-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances,KindSignatures,TypeFamilies,OverlappingInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module Graphics.OpenGLES.Buffer (
+
   -- * Buffer
   -- ** Constructing Mutable Buffers
   Buffer,
@@ -34,8 +39,8 @@ module Graphics.OpenGLES.Buffer (
   -- | /3+ or GL_NV_copy_buffer/
   copy_read_buffer, copy_write_buffer
   ) where
+
 import Control.Applicative
-import Data.Array.Base (getNumElements)
 import Data.Array.Storable
 import Data.Array.Storable.Internals
 import qualified Data.ByteString as B
@@ -44,6 +49,7 @@ import Data.IORef
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.Env
+import Graphics.OpenGLES.Types
 import Foreign hiding (newArray)
 
 -- ** Constructing Mutable Buffers
@@ -54,7 +60,7 @@ type family Content a x :: *
 type instance Content Int x = x
 type instance Content B.ByteString x = x
 type instance Content [a] x = a
-type instance Content ([a],Int) x = a
+type instance Content ([a], Int) x = a
 type instance Content (GLArray a) x = a
 
 class (Storable b, b ~ Content a b) => GLSource a b where
@@ -66,12 +72,15 @@ instance Storable b => GLSource Int b where
 	makeWriter len = (\ptr -> B.memset (castPtr ptr) 0
 		(fromIntegral $ len * sizeOf (undefined :: b))
 			>> return (), len)
+
 instance Storable a => GLSource ([a], Int) a where
-	makeAref (xs, len) = Left <$> newListArray (0, len) (cycle xs)
+	makeAref (xs, len) = Left <$> newListArray (0, len - 1) (cycle xs)
 	makeWriter (xs, len) = (\ptr -> pokeArray ptr xs, len)
+
 instance Storable a => GLSource [a] a where
-	makeAref xs = Left <$> newListArray (0, length xs) xs
+	makeAref xs = Left <$> newListArray (0, length xs - 1) xs
 	makeWriter xs = (\ptr -> pokeArray ptr xs, length xs)
+
 instance Storable b => GLSource B.ByteString b where
 	makeAref bs@(B.PS foreignPtr offset len) = do
 		let fp | offset == 0 = foreignPtr
@@ -83,6 +92,7 @@ instance Storable b => GLSource B.ByteString b where
 		withForeignPtr fp $ \src ->
 			B.memcpy (castPtr dst) (advancePtr (castPtr src) offset) len
 		, len `div` sizeOf (undefined :: b))
+
 instance Storable a => GLSource (GLArray a) a where
 	makeAref = return . Left
 	makeWriter sa@(StorableArray _ _ len fp) =
@@ -90,6 +100,7 @@ instance Storable a => GLSource (GLArray a) a where
 			B.memcpy (castPtr dst) (castPtr src)
 			(len * sizeOf (undefined :: a))
 		, len)
+
 --instance GLSource (Buffer a) a where
 --	makeAref (Buffer aref glo) = return . Left =<< go =<< readIORef aref
 --	where
@@ -126,6 +137,7 @@ glLoad usage src = do
 				withStorableArraySize sa (bufferData array_buffer usage)
 			Right elems ->
 				bufferData array_buffer usage (elems * unit) nullPtr
+		void $ showError "glBufferData"
 		) where unit = sizeOf (undefined :: b)
 	-- TODO BufferArchive
 
@@ -148,8 +160,10 @@ glReload buf@(Buffer aref glo) offsetIx src = do
 	if hasES3 then do
 		ptr <- mapBufferRange array_buffer (offsetIx * unit) size
 			(map_write_bit + map_invalidate_range_bit + map_unsynchronized_bit)
+		showError "glMapBufferRange"
 		fillSubArray ptr
 		unmapBuffer array_buffer
+		showError "glUnmapBuffer"
 		case aref' of Left (StorableArray _ _ len _) ->
 				writeIORef aref (Right (len * unit))
 	else do
@@ -160,6 +174,7 @@ glReload buf@(Buffer aref glo) offsetIx src = do
 			let ptr = advancePtr p (offsetIx * unit)
 			fillSubArray ptr
 			bufferSubData array_buffer (offsetIx * unit) size ptr
+			showError "glBufferSubData"
 		writeIORef aref (Left sa)
 
 

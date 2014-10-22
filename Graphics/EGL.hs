@@ -9,11 +9,9 @@
 -- <http://www.khronos.org/files/egl-1-4-quick-reference-card.pdf>
 module Graphics.EGL where
 import Control.Applicative
-import Data.IORef
 import Foreign
 import Foreign.C.String
 import System.IO.Unsafe (unsafePerformIO)
-import Unsafe.Coerce
 #if __GLASGOW_HASKELL__
 import GHC.Base (realWorld#)
 import GHC.CString (unpackCString#)

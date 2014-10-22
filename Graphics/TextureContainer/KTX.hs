@@ -66,7 +66,7 @@ unpackKtx name orig = do
 
 	return $ ktx kvp imgs
 
-
+ktxFromFile :: FilePath -> IO Ktx
 ktxFromFile path = B.readFile path >>= return . readKtx path
 
 readKtx :: FilePath -> B.ByteString -> Ktx

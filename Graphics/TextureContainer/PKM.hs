@@ -2,8 +2,6 @@
 -- | Ericsson's ETC1\/ETC2\/EAC Texture Container Format
 module Graphics.TextureContainer.PKM where
 import Control.Applicative
-import Control.Exception
-import Control.Monad
 import qualified Data.ByteString as B
 import Data.Packer
 import Data.Word
@@ -66,6 +64,7 @@ pkmToKtx Pkm{..} = Ktx
 		fromPkmType 12848 7 = undefined
 		fromPkmType 12848 8 = undefined
 
+fromPkmFile :: FilePath -> IO Pkm
 fromPkmFile path = B.readFile path >>= return . readPkm path
 
 readPkm :: FilePath -> B.ByteString -> Pkm

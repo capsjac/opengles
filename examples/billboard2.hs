@@ -4,13 +4,14 @@ import Control.Applicative
 import Control.Monad
 import Graphics.OpenGLES
 import qualified Data.ByteString.Char8 as B
-import Data.Typeable
 import qualified Graphics.UI.GLFW as GLFW
 import Control.Concurrent
 
+-- ghc examples/billboard2.hs -lEGL -lGLESv2 -threaded && examples/billboard2
 main = do
 	GLFW.init
 	Just win <- GLFW.createWindow 534 600 "The Billboard" Nothing Nothing
+	GLFW.setFramebufferSizeCallback win $ Just (const framesize)
 	forkGL
 		(GLFW.makeContextCurrent (Just win) >> return False)
 		(GLFW.makeContextCurrent Nothing)
@@ -73,17 +74,17 @@ data SomeObj = SomeObj
 	, posBuf :: Buffer Vec2
 	, uvBuf :: Buffer (V2 Word8)
 	, ixBuf :: Buffer Word8
-	, tex0 :: Texture
+	, tex0 :: Texture ()
 	}
 
 mkSomeObj :: Billboard -> GL SomeObj
 mkSomeObj prog@Billboard{..} = do
-	posBuf <- glLoadList app2gl (0,3) posData
-	uvBuf <- glLoadList app2gl (0,3) uvData
+	posBuf <- glLoad app2gl posData
+	uvBuf <- glLoad app2gl uvData
 	vao <- glVA [ pos &= posBuf, uv &= uvBuf]
 	tex0 <- glLoadKtxFile "white_fox.ktx" -- replace with your favorite one
 	setSampler tex0 (Sampler (tiledRepeat,tiledRepeat,Nothing) 16.0 (magLinear,minLinear))
-	ixBuf <- glLoadList app2gl (0,5) [0,1,2, 3,2,1]
+	ixBuf <- glLoad app2gl [0,1,2, 3,2,1]
 	return SomeObj {..}
 
 posData = [V2 (-1) 1, V2 1 1, V2 (-1) (-1), V2 1 (-1)]
@@ -95,6 +96,6 @@ draw SomeObj{..} = do
 	let Billboard{..} = prog
 	r <- glDraw drawTriangles billboard
 		[texSlot 0 tex0] --[ begin culling, cullFace hideBack]
-		[ mvpMatrix $= (idmtx::Mat4), tex $= 0 ]
+		[ mvpMatrix $= eye4, tex $= 0 ]
 		vao $ byIndex ixBuf 0 6
 	putStrLn . show $ r

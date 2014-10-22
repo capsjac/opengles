@@ -15,7 +15,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
 module Graphics.OpenGLES.Core (
   GL,
   -- * Lifecycle
@@ -24,10 +25,11 @@ module Graphics.OpenGLES.Core (
   withGL, resetDrawQueue,
   glLog, glReadLogs, glLogContents,
   flushCommandQ, finishCommands,
+  glFrameCount, glFlipping, framesize,
   
   -- * Draw Operation
   -- ** Clear Screen
-  clear, ClearBufferMask,
+  clear, BufferMask,
   depthBuffer, stencilBuffer, colorBuffer,
   
   -- ** Draw
@@ -39,13 +41,13 @@ module Graphics.OpenGLES.Core (
   drawTriangles, triangleStrip, triangleFan,
 
   -- ** Graphics State
-  GraphicsState,
+  RenderConfig, renderTo,
 
   -- ** Programmable Shader
   Shader, vertexShader, fragmentShader, pixelShader,
   computeShader, geometryShader,
   tessellationEvalS, tessellationCtrlS,
-  Program,
+  Program, module Data.Typeable,
   TransformFeedback(..), ProgramBinary,
   glCompile, glValidate,
   
@@ -55,7 +57,7 @@ module Graphics.OpenGLES.Core (
   -- ** Vertex Attribute Array
   Attrib, attrib, normalized, divisor, (&=),
   VertexArray, glVA,
-  ShaderAttribute, AttrStruct, SetVertexAttr,
+  VertexAttribute, AttrStruct, SetVertexAttr,
   
   -- ** Constant Vertex Attribute
   constAttrib,
@@ -80,12 +82,11 @@ import qualified Data.ByteString as B
 import Data.IORef
 import Data.Typeable
 import Foreign
-import Foreign.C.String (peekCString, peekCStringLen)
+import Foreign.C.String (peekCStringLen)
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Buffer
 import Graphics.OpenGLES.Env
 import Graphics.OpenGLES.Internal
-import Graphics.OpenGLES.Types
 
 
 -- * Initialization
@@ -103,7 +104,7 @@ forkGL resumeGL suspendGL swapBuffers = forkOS $ do
 	let loop count = do
 		putStrLn $ "start draw " ++ show count
 		readChan drawQueue >>= id
-		loop (count + 1)
+		loop (count + 1 :: Integer)
 	catch (loop 0) $ \(e :: SomeException) -> do
 		glLog $ "Rendering thread terminated: " ++ show e
 		suspendGL
@@ -146,13 +147,13 @@ withGL io = asyncIO $ \update -> runGL (io >>= update . Finished)
 -- so make it sure they are removed from the queue.
 resetDrawQueue :: IO ()
 resetDrawQueue = do
-	empty <- isEmptyChan drawQueue
-	when (not empty) (readChan drawQueue >> resetDrawQueue)
+	isEmpty <- isEmptyChan drawQueue
+	when (not isEmpty) (readChan drawQueue >> resetDrawQueue)
 
 glReadLogs :: IO [String]
 glReadLogs = do
-	empty <- isEmptyChan errorQueue
-	if empty
+	isEmpty <- isEmptyChan errorQueue
+	if isEmpty
 		then return []
 		else (:) <$> readChan errorQueue <*> glReadLogs
 
@@ -175,26 +176,32 @@ glFrameCount = readIORef frameCounter
 glFlipping :: IO Bool
 glFlipping = fmap odd glFrameCount
 
+-- | > GLFW.setFramebufferSizeCallback win $ Just (const framesize)
+framesize :: Int -> Int -> IO ()
+framesize w h = runGL $ glViewport 0 0 (f w) (f h)
+	where f = fromIntegral
+
 
 -- * Drawing
 
 -- |
 -- > clear [] colorBuffer
--- > clear [bindFramebuffer buf] (colorBuffer+depthBuffer)
+-- > clear [bindFb framebuffer] (colorBuffer+depthBuffer)
 clear
-	:: [GraphicsState]
-	-> ClearBufferMask
+	:: [RenderConfig]
+	-> BufferMask
 	-> GL ()
-clear gs (ClearBufferMask flags) = sequence gs >> glClear flags
+clear gs (BufferMask flags) = sequence gs >> glClear flags
 
-depthBuffer = ClearBufferMask 0x100
-stencilBuffer = ClearBufferMask 0x400
-colorBuffer = ClearBufferMask 0x4000
+depthBuffer, stencilBuffer, colorBuffer :: BufferMask
+depthBuffer = BufferMask 0x100
+stencilBuffer = BufferMask 0x400
+colorBuffer = BufferMask 0x4000
 
 glDraw :: Typeable p
 	=> DrawMode
 	-> Program p
-	-> [GraphicsState]
+	-> [RenderConfig]
 	-> [UniformAssignment p]
 	-> VertexArray p
 	-> VertexPicker
@@ -211,11 +218,23 @@ glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 	picker mode
 
 -- | See "Graphics.OpenGLES.State"
-type GraphicsState = GL ()
+type RenderConfig = GL ()
+
+-- |
+-- > renderTo $ do
+-- >     bindFb defaultFramebuffer
+-- >     viewport $ V4 0 0 512 512
+-- >     depthRange $ V2 0.1 10.0
+-- >     begin culling
+-- >     cullFace hideBack
+renderTo :: RenderConfig -> GL ()
+renderTo = id
 
 
 -- ** Draw Mode
 
+drawPoints, drawLines, drawLineLoop, drawLineStrip,
+	drawTriangles, triangleStrip, triangleFan :: DrawMode
 drawPoints = DrawMode 0
 drawLines = DrawMode 1
 drawLineLoop = DrawMode 2
@@ -300,9 +319,9 @@ Uniform desc $= value = glUniform desc value
 
 -- ** Vertex Attribute
 
--- normalized color `divisor` 1 &= buffer
+-- | @normalized color `divisor` 1 &= buffer@
 attrib
-	:: forall p a. (ShaderAttribute a, Typeable p)
+	:: forall p a. (VertexAttribute a, Typeable p)
 	=> GLName -> IO (Attrib p a)
 attrib name = do
 	desc <- lookupVarDesc typ
@@ -327,10 +346,10 @@ divisor (Attrib (i, s, n, _)) d = Attrib (i, s, n, d)
 
 type SetVertexAttr p = GL ()
 
-(&=) :: AttrStruct b a p => a -> Buffer b -> SetVertexAttr p
-attrib &= buf = do
+(&=) :: AttrStruct a p b => a -> Buffer b -> SetVertexAttr p
+attribs &= buf = do
 	bindBuffer array_buffer buf
-	glVertexAttribPtr attrib buf
+	glVertexBuffer attribs buf
 
 
 glVA :: [SetVertexAttr p] -> GL (VertexArray p)
@@ -339,28 +358,16 @@ glVA attrs = do
 	glo <- case extVAO of
 		Nothing -> return (error "GLO not used")
 		Just (gen, bind, del) ->
-			newGLO gen del (\i-> bind i >> setVA)
+			newGLO gen del (\i -> bind i >> setVA)
 	return $ VertexArray (glo, setVA)
 
 
 -- ** Constant Vertex Attribute
 
-constAttrib :: ShaderAttribute a => Attrib p a -> a -> SetVertexAttr p
-constAttrib (Attrib (idx, s, n, d)) val = do
-	glDisableVertexAttribArray idx
-	glVertexAttrib idx val
-
---withConstAttr :: Attrib p a -> GL b -> GL b
---withConstAttr (Attrib (idx, _, _, _)) io = do
---	glDisableVertexAttribArray idx
---	result <- io
---	glEnableVertexAttribArray idx
-
-
--- ** Texture
-data Texture = Texture Int32
-instance UnifVal Texture where
-	glUniform unif (Texture i) = glUniform unif i
+constAttrib :: VertexAttribute a => Attrib p a -> a -> SetVertexAttr p
+constAttrib (Attrib (ix, _, _, _)) val = do
+	glDisableVertexAttribArray ix
+	glVertexAttrib ix val
 
 
 -- ** Vertex Picker

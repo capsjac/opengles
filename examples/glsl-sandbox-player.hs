@@ -1,39 +1,41 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveDataTypeable, RecordWildCards #-}
 module Main where
+import Control.Applicative
+import Control.Concurrent
 import Control.Monad
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Char8 as B
 import Data.Time.Clock
 import Graphics.OpenGLES
-import Graphics.OpenGLES.Utils
 import qualified Graphics.UI.GLFW as GLFW
 
--- ghc -lEGL -O2 glsl-sandbox-player
+-- ghc examples/glsl-sandbox-player.hs -lEGL -lGLESv2 -threaded && examples/glsl-sandbox-player < examples/glsl-17617.fs
 main :: IO ()
 main = do
-	putStrLn "Usage: Paste any shader from https://glsl.heroku.com/ and press Ctrl-D\n(In other words, read from stdin.)"
+	putStrLn "Usage: Paste any pixel shader from https://glsl.heroku.com/ and press Ctrl-D\n(In other words, read from stdin.)"
 	shaderSource <- getContents
-	putStrLn $ show $ length shaderSource
+	putStrLn shaderSource
 	isOk <- GLFW.init
 	if not isOk then (fail "Initialization Failed!") else return ()
-	(win, w, h) <- initFullscreen "Window Title"
+	(win, w, h) <- initFullscreen "GLSL Sandbox Player"
 	--(win, w, h) <- initWindow 600 480 "Window Title"
-	GLFW.makeContextCurrent (Just win)
+	forkGL (GLFW.makeContextCurrent (Just win) >> return False)
+		(GLFW.makeContextCurrent Nothing)
+		(GLFW.swapBuffers win)
 	--GLFW.swapInterval 1
-	--(w, h) <- GLFW.getFramebufferSize win -- XXX returns smaller size
-	
-	putStrLn $ show (w, h)
-	glViewport 0 0 (fromIntegral w) (fromIntegral h)
-	glClearColor 0.2 0.2 0.3 1.0
-	
-	glm <- initGLManager
-	startedAt <- getCurrentTime
-	Right call <- compileCall glm (quad (BS.pack shaderSource))
-	putStrLn $ show call
-	let cxt = Context win call startedAt 0 w h
-	mainloop cxt
-	
+	forkIO $ mapM_ (putStrLn.("# "++)) =<< glLogContents
+	future <- withGL $ mkPlayer (B.pack shaderSource) >>= mkPlayerObj
+	t0 <- getCurrentTime
+	let loop c = do
+		withGL $ runAction $ draw win t0 (realToFrac w) (realToFrac h) <$> future
+		endFrameGL
+		putStrLn . show $ c
+		GLFW.pollEvents
+		closing <- GLFW.windowShouldClose win
+		when (not closing && c < 1000) $ loop (c+1)
+	loop 0
 	GLFW.destroyWindow win
 	GLFW.terminate
+	--(w, h) <- GLFW.getFramebufferSize win -- XXX returns smaller size
 
 initWindow w h title = do
 	GLFW.windowHint $ GLFW.WindowHint'Resizable True
@@ -48,55 +50,29 @@ initFullscreen title = do
 	win <- GLFW.createWindow w h title (Just monitor) Nothing
 	       >>= maybe (fail "Failed to create a Window") return
 	return (win, w, h)
-	
 
-data Context = Context
-	{ win :: GLFW.Window
-	, call :: DrawCall
-	, startedAt :: UTCTime
-	, loopcount :: Int
-	, ww :: Int
-	, wh :: Int
-	}
+data Player = Player
+	{ player :: Program Player
+	, p_time :: Uniform Player Float
+	, p_mouse :: Uniform Player Vec2
+	, p_resolution :: Uniform Player Vec2
+	, p_backbuffer :: Uniform Player Int32
+	, p_surfaceSize :: Uniform Player Vec2
+	, p_pos :: Attrib Player Vec2
+	} deriving Typeable
 
-quadPos :: [Float]
-quadPos = [-1,-1, 1,-1, -1,1, 1, 1.0]
+mkPlayer :: B.ByteString -> GL Player
+mkPlayer fsSrc = do
+	Finished p <- glCompile NoFeedback
+		[ vertexShader "glsl-sandbox.vs" vsSrc
+		, fragmentShader "custom-fragment-shader" fsSrc ]
+		$ \prog step msg bin ->
+			putStrLn $ "> step " ++ show step ++ ", " ++ msg
+	Player p <$> uniform "time" <*> uniform "mouse"
+		<*> uniform "resolution" <*> uniform "backbuffer"
+		<*> uniform "surfaceSize" <*> attrib "pos"
 
-quad :: BS.ByteString -> DrawCall
-quad customShader = DrawUnit
-	TriangleStrip
-	(Program "glsl-sandbox"
-		[ VertexShader "pure" vertexShader
-		, FragmentShader "custom-fragment-shader" customShader ])
-	[]--(DrawConfig True True False False)
-	[ UniformVar "time" (Uniform1f 0)
-	, UniformVar "mouse" (Uniform2f (Vec2 0 0))
-	, UniformVar "resolution" (Uniform2f (Vec2 0 0))
-	, UniformVar "backbuffer" (Uniform1i 0)
-	, UniformVar "surfaceSize" (Uniform2f (Vec2 0 0))
-	]
-	[ Vertex "pos" (FloatV 2 quadPos) ]
-	--[]
-	(VFromCount 0 4)
-
-replaceUniforms old [] = old
-replaceUniforms (old@(UniformVar name val ref):xs) new =
-	loop new : replaceUniforms xs new
-	where
-		loop ((name', val'):ys) | name' == name = UniformVar name val' ref
-		loop ((name', val'):ys) = loop ys
-		loop [] = old
-replaceUniforms [] new = []
-
-params old time mouse res = replaceUniforms old $
-	[ ("time", Uniform1f time)
-	, ("mouse", Uniform2f mouse)
-	, ("resolution", Uniform2f res)
-	, ("backbuffer", Uniform1i 0)
-	, ("surfaceSize", Uniform2f res)
-	]
-
-vertexShader = BS.pack $
+vsSrc = B.pack $
 	"attribute vec2 pos;\n" ++
 	"varying vec2 surfacePosition;\n" ++
 	"void main() {\n" ++
@@ -104,38 +80,30 @@ vertexShader = BS.pack $
 	"    gl_Position = vec4(pos, 0, 1);\n" ++
 	"}\n"
 
-mainloop :: Context -> IO ()
-mainloop cxt@Context{..} = do
-	-- beginFrame
-	--disable Dither
-	--putStr "start " >> getCurrentTime >>= putStrLn . show
-	glClear 0x4000
-	--putStr "clear " >> getCurrentTime >>= putStrLn . show	
-	draw cxt
-	--putStr "drawn " >> getCurrentTime >>= putStrLn . show
-	
-	-- endFrame
-	GLFW.swapBuffers win
-	--putStr "swapd " >> getCurrentTime >>= putStrLn . show
-	GLFW.pollEvents
+data PlayerObj = PlayerObj
+	{ prog :: Player
+	, vao :: VertexArray Player
+	, posBuf :: Buffer Vec2
+	}
 
-	shouldExit <- GLFW.windowShouldClose win
-	if shouldExit || loopcount > 1000
-		then return ()
-		else mainloop cxt { loopcount = loopcount + 1 }
+mkPlayerObj :: Player -> GL PlayerObj
+mkPlayerObj prog@Player{..} = do
+	posBuf <- glLoad app2gl posData
+	vao <- glVA [ p_pos &= posBuf ]
+	return PlayerObj {..}
 
-draw (Context win call startedAt _ w h) = do
-	time <- getCurrentTime
-	putStrLn $ show time
-	let t = realToFrac $ diffUTCTime time startedAt
-	-- modify call here
-	let DrawCall m b c p e g = call
+posData = [V2 (-1) 1, V2 1 1, V2 (-1) (-1), V2 1 (-1)]
+
+draw :: GLFW.Window -> UTCTime -> Float -> Float -> PlayerObj -> GL ()
+draw win t0 w h PlayerObj{..} = do
+	clear [{-clearColor 0.2 0.2 0.3 1.0-}] colorBuffer
+	t <- getCurrentTime
+	let time = realToFrac $ diffUTCTime t t0
 	(x, y) <- GLFW.getCursorPos win
-	let unif = params p t (Vec2 (re x/float w) (re y/float h)) (Vec2 (float w) (float h))
-	drawData $ DrawCall m b c unif e g
-
-float :: Int -> Float
-float = fromIntegral
-
-re :: Double -> Float
-re = realToFrac
+	let Player{..} = prog
+	result <- glDraw triangleStrip player
+		[  ] --[ begin culling, cullFace hideBack]
+		[ p_time $= time, p_mouse $= V2 (re x/w) (re y/h), p_resolution $= V2 w h, p_backbuffer $= 0, p_surfaceSize $= V2 w h ]
+		vao $ takeFrom 0 4
+	putStrLn . show $ result
+	where re = realToFrac :: Double -> Float

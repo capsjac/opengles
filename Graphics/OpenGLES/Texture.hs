@@ -37,12 +37,10 @@ import Data.IORef
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env
 import Graphics.OpenGLES.Internal
-import Graphics.OpenGLES.PixelFormat
+--import Graphics.OpenGLES.PixelFormat
 import Graphics.TextureContainer.KTX
 import Foreign.Ptr (castPtr)
 
--- glo, target, ktx
-data Texture a = Texture GLenum (IORef Ktx) GLO
 -- XXX Texture DoubleBufferring
 
 newtype Texture3D a = Texture3D (Texture a)
@@ -203,13 +201,6 @@ needsGenMipmap Ktx {..}
 	| max (max ktxPixelDepth ktxPixelHeight) ktxPixelDepth < 2^(ktxNumMipLevels-1)
 	= Left "checkKtx: Can't have more mip levels than 1 + log2(max(width, height, depth))"
 needsGenMipmap _ = Right False
-
-texture_2d = 0x0DE1
-texture_cube_map = 0x8513
-texture_2d_array = 0x8C1A
-texture_3d = 0x806F
-
-texture_cube_map_positive_x = 0x8515
 
 
 -- ** Sampler

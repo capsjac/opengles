@@ -2,16 +2,32 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Graphics.OpenGLES.Framebuffer where
+module Graphics.OpenGLES.Framebuffer (
+  -- * Renderbuffer
+  glRenderbuffer,
+  unsafeRenderbuffer,
+  
+  -- * Framebuffer
+  glFramebuffer,
+  CR(..), Attachable, DepthStencil,
+  colorOnly, depthImage, stencilImage, depthStencil,
+  
+  -- * Framebuffer Settings
+  bindFb, withFb,
+  defaultFramebuffer,
+  viewport, getViewport, withViewport,
+  depthRange, getDepthRange, withDepthRange
+  ) where
 import Control.Applicative
-import Control.Monad (when)
 import Data.IORef
 import Foreign
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env (hasES3)
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.PixelFormat
-import Linear.Vect
+import Graphics.TextureContainer.KTX
+import Linear.V2
+import Linear.V4
 
 -- |
 -- New Renderbuffer with specified sample count and dimentions.
@@ -42,21 +58,28 @@ instance Attachable Renderbuffer a where
 		modifyIORef maxDims (\(V2 mw mh)-> V2 (max w mw) (max h mh))
 		glFramebufferRenderbuffer 0x8D40 attachment 0x8D41 rb
 
---instance Attachable Texture a where
---	glAttachToFramebuffer attachment (Texture textgt ktx glo) maxDims = do
---		tex <- getObjId glo
---		let V2 w h = ktx...
---		modifyIORef maxDims (\(V2 mw mh)-> V2 (max w mw) (max h mh))
---		case textgt of
-			-- Texture2D
-			-- CubeMap
---			glFramebufferTexture2D 0x8D40 attachment textgt tex level
-			-- Texture3D
-			-- Texture2DArray
---			glFramebufferTextureLayer 0x8D40 attachment tex level layer
+instance Attachable Texture a where
+	glAttachToFramebuffer attachment (Texture textgt ktx glo) maxDims = do
+		tex <- getObjId glo
+		k <- readIORef ktx
+		let w = fromIntegral $ ktxPixelWidth k
+		let h = fromIntegral $ ktxPixelHeight k
+		modifyIORef maxDims (\(V2 mw mh)-> V2 (max w mw) (max h mh))
+		let level = 0; layer = 0
+		-- XXX multisample texure sholud use texture_2d_multisample
+		case textgt of
+			x | x == texture_2d ->
+				glFramebufferTexture2D 0x8D40 attachment textgt tex level
+			x | x == texture_cube_map ->
+				glFramebufferTexture2D 0x8D40 attachment texture_cube_map_positive_x tex level
+			x | x == texture_2d_array ->
+				glFramebufferTextureLayer textgt attachment tex level layer
+			x | x == texture_3d ->
+				glFramebufferTextureLayer textgt attachment tex level layer
+			_ -> error "glAttachToFramebuffer: Invalid Texture target"
 
-newtype DepthStencil = DepthStencil (IORef (V2 Int32) -> GL ())
 data CR = forall a c. (Attachable a c, ColorRenderable c) => CR (a c)
+newtype DepthStencil = DepthStencil (IORef (V2 Int32) -> GL ())
 
 colorOnly :: DepthStencil
 colorOnly = DepthStencil (const $ return ())
@@ -106,15 +129,15 @@ getViewport = allocaArray 4 $ \p -> do
 
 -- |
 -- Cliping current framebuffer. Note that origin is left-bottom.
-setViewport :: V4 Int32 -> GL ()
-setViewport (V4 x y w h) = glViewport x y w h
+viewport :: V4 Int32 -> GL ()
+viewport (V4 x y w h) = glViewport x y w h
 
 withViewport :: V4 Int32 -> GL a -> GL a
 withViewport vp io = do
 	old <- getViewport
-	setViewport vp
+	viewport vp
 	result <- io
-	setViewport old
+	viewport old
 	return result
 
 -- XXX maybe slow (untested)
@@ -124,14 +147,14 @@ getDepthRange = allocaArray 2 $ \p -> do
 	[n,f] <- peekArray 2 p
 	return $ V2 n f
 
-setDepthRange :: V2 Float -> GL ()
-setDepthRange (V2 near far) = glDepthRangef near far
+depthRange :: V2 Float -> GL ()
+depthRange (V2 near far) = glDepthRangef near far
 
 withDepthRange :: V2 Float -> GL a -> GL a
 withDepthRange dr io = do
 	old <- getDepthRange
-	setDepthRange dr
+	depthRange dr
 	result <- io
-	setDepthRange old
+	depthRange old
 	return result
 

@@ -2,20 +2,14 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Graphics.OpenGLES.PixelFormat where
 import Data.Proxy
-import GHC.TypeLits
 import Data.Int
 import Data.Word
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.Base
-import Linear.Vect
---import Linear
+import Linear
 
 -- Texture Only Sized Internal Formats
 data R8snorm
@@ -85,20 +79,20 @@ data Alpha8
 
 
 class InternalFormat a b | b -> a where
-	ifmt :: p (a, b) -> (GLenum,GLenum,GLenum)
+	ifmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 
 class ExternalFormat a b where
-	efmt :: p (a, b) -> (GLenum,GLenum,GLenum)
+	efmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 
 class InternalFormat a b => ES2Format a b where
-	es2fmt :: p (a, b) -> (GLenum,GLenum,GLenum)
+	es2fmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 	es2fmt x = case ifmt x of
 		(format, typ, _) -> (format, typ, format)
 
 #define PixelFormat(_dim, _type, _tag, _format, _internal_fmt) \
 instance InternalFormat (_dim _type) _tag where \
 	{-# INLINE ifmt #-}; \
-	ifmt _ = (_format,glType ([] :: [_type]),_internal_fmt) \
+	ifmt _ = (_format, glType ([] :: [_type]), _internal_fmt) \
 
 PixelFormat(, Int8, R8snorm, r, 0x8F94)
 PixelFormat(V2, Int8, Rg8snorm, rg, 0x8F95)
@@ -168,7 +162,7 @@ instance InternalFormat a b => ExternalFormat a b where
 #define PixelFormat2(_dim, _type, _tag, _format, _internal_fmt) \
 instance ExternalFormat (_dim _type) _tag where \
 	{-# INLINE efmt #-}; \
-	efmt _ = (_format,glType ([] :: [_type]),_internal_fmt) \
+	efmt _ = (_format, glType (Proxy :: Proxy _type), _internal_fmt) \
 
 PixelFormat2(V4, Word8, Rgb5a1, rgba, 0x8057) -- RGBA W8
 PixelFormat2(V4, Word8, Rgba4, rgba, 0x8056) -- RGBA W8
@@ -234,50 +228,4 @@ class StencilRenderable a where
 instance StencilRenderable Depth24Stencil8
 instance StencilRenderable Depth32fStencil8
 instance StencilRenderable Stencil8 -- optional
-
-type family SizeOf (f :: *) :: Nat
-type instance SizeOf Float = 4
-type instance SizeOf HalfFloat = 2
---type instance SizeOf FixedFloat = 4
-type instance SizeOf Word8 = 1
-type instance SizeOf Word16 = 2
-type instance SizeOf Word32 = 4
-type instance SizeOf Int8 = 1
-type instance SizeOf Int16 = 2
-type instance SizeOf Int32 = 4
-type instance SizeOf Int2_10x3 = 4
-type instance SizeOf Word2_10x3 = 4
-type instance SizeOf Word4444 = 2
-type instance SizeOf Word5551 = 2
-type instance SizeOf Word10f11f11f = 4
-type instance SizeOf Word5999 = 4
-type instance SizeOf Word24_8 = 4
-type instance SizeOf FloatWord24_8 = 8
-type instance SizeOf (V2 a) = Aligned (2 * SizeOf a)
-type instance SizeOf (V3 a) = Aligned (3 * SizeOf a)
-type instance SizeOf (V4 a) = Aligned (4 * SizeOf a)
-
---type family Sum (l :: [Nat]) :: Nat
---type instance Sum '[] = 0
---type instance Sum (x ': xs) = x + Sum xs
-
---type family Map (f :: * -> *) (xs :: [*]) :: [*]
---type instance Map f '[] = '[]
---type instance Map f (x ': xs) = f x ': Map f xs
-
-type family Stride (l :: [*]) :: Nat
-type instance Stride '[] = 0
-type instance Stride (x ': xs) = SizeOf x + Stride xs
-
-type family Aligned (x :: Nat) :: Nat
-type instance Aligned x = If (x <=? 3) 4 x
-
-type family If (p :: Bool) (t :: Nat) (f :: Nat) :: Nat
-type instance If True x y = x
-type instance If False x y = y
-
---type family ImageOf
---type instance ImageOf Rgba8 = V4 Word8
---type instance ImageOf Rgba4 = Word16
---type instance ImageOf Rgba4FromRgba8 = Word16
 

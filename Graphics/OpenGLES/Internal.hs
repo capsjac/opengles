@@ -15,7 +15,8 @@ import Foreign hiding (newForeignPtr, addForeignPtrFinalizer, void)
 import Foreign.C.String (peekCString, peekCStringLen)
 import Foreign.Concurrent (newForeignPtr, addForeignPtrFinalizer)
 import Graphics.OpenGLES.Base
-import Linear.Vect
+import Graphics.TextureContainer.KTX
+import Linear.V2
 import System.IO.Unsafe (unsafePerformIO)
 
 -- * Internal
@@ -28,6 +29,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 frameCounter :: IORef Int
 frameCounter = unsafePerformIO $ newIORef 0
+
 
 -- ** Logging
 
@@ -62,7 +64,9 @@ showError location = do
 		glLog ("E " ++ location ++ ": " ++ show err)
 		return True )
 
+
 -- ** GL Object management
+
 type GLO = IORef GLObj
 data GLObj = GLObj GLuint (GL GLObj) (ForeignPtr GLuint)
 
@@ -105,6 +109,7 @@ genObj genObjs delObjs initObj = do
 
 
 -- ** Types
+
 -- VertexArray
 -- 2.0
 newtype HalfFloat = HalfFloat Word16 deriving (Num,Storable)
@@ -172,6 +177,7 @@ data Buffer a = Buffer 	(IORef (Either (StorableArray Int a) Int)) GLO
 newtype BufferUsage = BufferUsage GLenum
 
 newtype BufferSlot = BufferSlot GLenum
+
 
 -- ** DrawMode
 
@@ -409,6 +415,7 @@ c_active_attributes = 0x8B89
 -- ** Uniform
 
 -- (location, length of array or 1, ptr)
+-- Uniform location is unique to each program
 newtype Uniform p a = Uniform (GLint, GLsizei, Ptr ())
 
 -- 
@@ -431,24 +438,17 @@ class UnifVal a where
 
 -- ** Attrib
 
--- (index, size, normalize, divisor)
-newtype Attrib p a = Attrib (GLuint, GLsizei, GLboolean, GLuint) deriving Show
+-- Attrib program glsl_type = (index, size, normalize, divisor)
+newtype Attrib p a = Attrib (GLuint, GLsizei, GLboolean, GLuint)
+	deriving Show
 
-class (Num a, Storable a) => GenericVertexAttribute a where
-	glVertexAttrib4v :: GLuint -> Ptr (V4 a) -> GL ()
-
-instance GenericVertexAttribute Float where
-	glVertexAttrib4v idx = glVertexAttrib4fv idx . castPtr
-instance GenericVertexAttribute Int32 where
-	glVertexAttrib4v idx = glVertexAttribI4iv idx . castPtr
-instance GenericVertexAttribute Word32 where
-	glVertexAttrib4v idx = glVertexAttribI4uiv idx . castPtr
-
-class ShaderAttribute a where
+-- | GLSL vertex attribute type
+class VertexAttribute a where
 	glVertexAttrib :: GLuint -> a -> GL ()
 
-class Storable b => AttrStruct b a p | a -> p where
-	glVertexAttribPtr :: a -> Buffer b -> GL ()
+-- | A set of 'VertexAttribute's packed in a 'Buffer'
+class AttrStruct a p b | a -> p where
+	glVertexBuffer :: a -> Buffer b -> GL ()
 
 
 -- ** Vertex Array Object
@@ -473,7 +473,7 @@ instance VertexIx Word32 where
 
 -- ** Draw Operation
 
-newtype ClearBufferMask = ClearBufferMask GLenum deriving Num
+newtype BufferMask = BufferMask GLenum deriving Num
 
 -- [MainThread, GLThread]
 -- if Nothing, main GL thread should stop before the next frame.
@@ -499,3 +499,17 @@ defaultFramebuffer = unsafePerformIO $ do
 	dummy <- newIORef undefined
 	return $ Framebuffer dummy glo
 
+
+-- ** Texture
+
+-- glo, target, ktx
+data Texture a = Texture GLenum (IORef Ktx) GLO
+
+texture_2d, texture_cube_map, texture_2d_array, texture_3d,
+	texture_cube_map_positive_x :: Word32
+texture_2d = 0x0DE1
+texture_cube_map = 0x8513
+texture_2d_array = 0x8C1A
+texture_3d = 0x806F
+
+texture_cube_map_positive_x = 0x8515

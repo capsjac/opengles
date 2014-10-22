@@ -4,10 +4,10 @@ import Control.Applicative
 import Control.Monad
 import Graphics.OpenGLES
 import qualified Data.ByteString.Char8 as B
-import Data.Typeable
 import qualified Graphics.UI.GLFW as GLFW
 import Control.Concurrent
 
+-- ghc examples/billboard.hs -lEGL -lGLESv2 -threaded && examples/billboard
 main = do
 	GLFW.init
 	Just win <- GLFW.createWindow 600 480 "The Billboard" Nothing Nothing
@@ -88,7 +88,7 @@ mkSomeObj prog@Billboard{..} = do
 	vao <- glVA [ pos &= posBuf, uv &= uvBuf]
 	return SomeObj {..}
 
-posData = [V2 0 0, V2 1 0, V2 0 1, V2 1 1]
+posData = [V2 (-1) (-1), V2 1 (-1), V2 (-1) 1, V2 1 1]
 uvData = [V2 0 0, V2 0 1, V2 1 0, V2 1 1]
 
 draw :: SomeObj -> GL ()
@@ -97,7 +97,7 @@ draw SomeObj{..} = do
 	updateSomeObj posBuf uvBuf
 	r <- glDraw triangleStrip billboard
 		[ begin culling, cullFace hideBack]
-		[ mvpMatrix $= (idmtx::Mat3)]
+		[ mvpMatrix $= eye3]
 		vao $ takeFrom 0 4
 	putStrLn . show $ r
 updateSomeObj _ _ = return ()
