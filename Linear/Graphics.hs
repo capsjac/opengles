@@ -66,3 +66,15 @@ yEqual f from to = [V2 x (f x) | x <- [from..to]]
 
 xEqual g from to = [V2 (g y) y | y <- [from..to]]
 
+-- | Billboard helper
+simpleQuad = [V2 (-1) 1, V2 1 1, V2 (-1) (-1), V2 1 (-1)]
+
+-- | Whole texture
+uvWhole = [V2 0 0, V2 1 0, V2 0 1, V2 1 1]
+
+-- | Modify 2D aspect raito
+scale2 xScale yScale = V2 (V2 xScale 0) (V2 0 yScale)
+
+-- | 2D rotation matrix
+rotate2 a = V2 (V2 (cos a) (sin a)) (V2 (-sin a) (cos a))
+
