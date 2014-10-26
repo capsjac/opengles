@@ -3,6 +3,15 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Graphics.OpenGLES.Framebuffer (
+  -- * Whole Framebuffer Operations
+  -- ** Clearing the Buffers
+  clear, clearColor, clearDepth, clearStencil,
+  BufferMask,
+  colorBuffer, depthBuffer, stencilBuffer,
+  
+  -- ** Fine Control of Buffer Updates
+  colorMask, depthMask, stencilMask, stencilMaskSep,
+  
   -- * Renderbuffer
   glRenderbuffer,
   unsafeRenderbuffer,
@@ -25,9 +34,57 @@ import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Env (hasES3)
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.PixelFormat
+import Graphics.OpenGLES.State
 import Graphics.TextureContainer.KTX
 import Linear.V2
 import Linear.V4
+
+
+-- |
+-- > clear [] colorBuffer
+-- > clear [bindFb framebuffer] (colorBuffer+depthBuffer)
+clear
+	:: [RenderConfig]
+	-> BufferMask
+	-> GL ()
+clear gs (BufferMask flags) = sequence gs >> glClear flags
+
+clearColor :: Float -> Float -> Float -> Float -> GL ()
+clearColor = glClearColor
+
+clearDepth :: Float -> GL ()
+clearDepth = glClearDepthf
+
+clearStencil :: Int32 -> GL ()
+clearStencil = glClearStencil
+
+depthBuffer, stencilBuffer, colorBuffer :: BufferMask
+depthBuffer = BufferMask 0x100
+stencilBuffer = BufferMask 0x400
+colorBuffer = BufferMask 0x4000
+
+colorMask :: V4 Bool -> GL ()
+colorMask (V4 r g b a) = glColorMask (f r) (f g) (f b) (f a)
+	where f c = if c then 1 else 0
+
+depthMask :: Bool -> GL ()
+depthMask = glDepthMask . (\d -> if d then 1 else 0)
+
+stencilMask :: Word32 -> GL ()
+stencilMask = glStencilMask
+
+stencilMaskSep :: CullFace -> Word32 -> GL ()
+stencilMaskSep (Culling face) = glStencilMaskSeparate face
+
+-- /ES3+/
+-- Selecting a Buffer for Writing
+-- void DrawBuffers(sizei n, const enum *bufs);
+-- bufs points to an array of n BACK, NONE, or COLOR_ATTACHMENTi
+-- where i = [0,MAX_COLOR_ATTACHMENTS - 1]
+-- void ClearBuffer{if ui}v(enum buffer, int drawbuffer, const T *value);
+-- buffer: COLOR, DEPTH, STENCIL
+-- void ClearBufferfi(enum buffer, int drawbuffer, float depth, int stencil);
+-- buffer: DEPTH_STENCIL. drawbuffer: 0
 
 -- |
 -- New Renderbuffer with specified sample count and dimentions.

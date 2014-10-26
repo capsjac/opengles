@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.6.0
+version:             0.6.1
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      The mission statement of this library is three F: Fun, Fast, yet Flexible.

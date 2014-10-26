@@ -27,7 +27,7 @@ import System.IO.Unsafe (unsafePerformIO)
 -- bufferArchive = unsafePerformIO $ newIORef []
 -- addCompiledProgramResources
 
-frameCounter :: IORef Int
+frameCounter :: IORef Int64
 frameCounter = unsafePerformIO $ newIORef 0
 
 
@@ -59,7 +59,7 @@ getError = unMarshal <$> glGetError
 
 showError :: String -> GL Bool
 showError location = do
-	putStrLn location -- tmp
+	--putStrLn location -- tmp
 	getError >>= maybe (return False) (\err -> do
 		glLog ("E " ++ location ++ ": " ++ show err)
 		return True )
@@ -186,6 +186,8 @@ newtype DrawMode = DrawMode GLenum
 
 -- ** Graphics State
 
+-- | See "Graphics.OpenGLES.State"
+type RenderConfig = GL ()
 newtype Capability = Capability GLenum
 newtype CullFace = Culling GLenum
 newtype CompFunc = CompFunc GLenum

@@ -29,20 +29,19 @@ module Graphics.OpenGLES.Core (
   
   -- * Draw Operation
   -- ** Clear Screen
-  clear, BufferMask,
-  depthBuffer, stencilBuffer, colorBuffer,
+  -- | See "Graphics.OpenGLES.Framebuffer"
   
   -- ** Draw
   glDraw,
-
+  
   -- ** Draw Mode
   DrawMode, drawPoints, drawLines,
   drawLineLoop, drawLineStrip,
   drawTriangles, triangleStrip, triangleFan,
-
+  
   -- ** Graphics State
   RenderConfig, renderTo,
-
+  
   -- ** Programmable Shader
   Shader, vertexShader, fragmentShader, pixelShader,
   computeShader, geometryShader,
@@ -64,7 +63,7 @@ module Graphics.OpenGLES.Core (
   
   -- ** Texture
   -- | See "Graphics.OpenGLES.Texture"
-
+  
   -- ** Vertex Picker
   VertexPicker, takeFrom,
   takeFromInstanced, takeFromMany,
@@ -119,7 +118,6 @@ stopGL = do
 		Just _ -> nop
 		Nothing -> waitGLThread
 	waitGLThread
-	writeIORef frameCounter 0
 	putStrLn "Rendering has stopped."
 
 --destroyGL :: IO ()
@@ -170,12 +168,13 @@ finishCommands = runGL glFinish
 nop :: Monad m => m ()
 nop = return ()
 
-glFrameCount :: IO Int
+glFrameCount :: IO Int64
 glFrameCount = readIORef frameCounter
 
 glFlipping :: IO Bool
 glFlipping = fmap odd glFrameCount
 
+-- XXX bindFb defaultFramebuffer needed
 -- | > GLFW.setFramebufferSizeCallback win $ Just (const framesize)
 framesize :: Int -> Int -> IO ()
 framesize w h = runGL $ glViewport 0 0 (f w) (f h)
@@ -183,20 +182,6 @@ framesize w h = runGL $ glViewport 0 0 (f w) (f h)
 
 
 -- * Drawing
-
--- |
--- > clear [] colorBuffer
--- > clear [bindFb framebuffer] (colorBuffer+depthBuffer)
-clear
-	:: [RenderConfig]
-	-> BufferMask
-	-> GL ()
-clear gs (BufferMask flags) = sequence gs >> glClear flags
-
-depthBuffer, stencilBuffer, colorBuffer :: BufferMask
-depthBuffer = BufferMask 0x100
-stencilBuffer = BufferMask 0x400
-colorBuffer = BufferMask 0x4000
 
 glDraw :: Typeable p
 	=> DrawMode
@@ -216,9 +201,6 @@ glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 		Just (_, bind, _) -> getObjId vao >>= bind
 	--glValidate prog
 	picker mode
-
--- | See "Graphics.OpenGLES.State"
-type RenderConfig = GL ()
 
 -- |
 -- > renderTo $ do
@@ -313,6 +295,7 @@ uniform name = do
 			ptr <- mallocArray (fromIntegral size) :: IO (Ptr Float)
 			return $ Uniform (loc, size, castPtr ptr)
 
+infix 0 $=
 ($=) :: UnifVal a => Uniform p a -> a -> UniformAssignment p
 Uniform desc $= value = glUniform desc value
 
@@ -346,6 +329,7 @@ divisor (Attrib (i, s, n, _)) d = Attrib (i, s, n, d)
 
 type SetVertexAttr p = GL ()
 
+infix 0 &=
 (&=) :: AttrStruct a p b => a -> Buffer b -> SetVertexAttr p
 attribs &= buf = do
 	bindBuffer array_buffer buf
@@ -401,7 +385,7 @@ sizePtr :: Int32 -> Ptr ()
 sizePtr = intPtrToPtr . fromIntegral
 
 -- Wrapping glDrawElements
-byIndex :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> VertexPicker
+byIndex :: VertexIx a => Buffer a -> Int32 -> Int32 -> VertexPicker
 byIndex buf first count =
 	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
@@ -410,7 +394,7 @@ byIndex buf first count =
 		showError "glDrawElements"
 
 -- Wrapping glDrawElementsInstanced[EXT]
-byIndexInstanced :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> Int32 -> VertexPicker
+byIndexInstanced :: VertexIx a => Buffer a -> Int32 -> Int32 -> Int32 -> VertexPicker
 byIndexInstanced buf first count instances =
 	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
@@ -420,7 +404,7 @@ byIndexInstanced buf first count instances =
 		showError "glDrawElementsInstanced"
 
 -- Wrapping glMultiDrawElementsEXT
-byIndices :: VertexIx a => (Buffer a) -> [(Int32, Int32)] -> VertexPicker
+byIndices :: VertexIx a => Buffer a -> [(Int32, Int32)] -> VertexPicker
 byIndices buf list =
 	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
@@ -435,7 +419,7 @@ byIndices buf list =
 -- ByIndicesRaw (Buffer w) (Buffer Word32) (Buffer Word32)
 
 -- Wrapping glDrawRangeElements[EXT]
-byIndexLimited :: VertexIx a => (Buffer a) -> Int32 -> Int32 -> Word32 -> Word32 -> VertexPicker
+byIndexLimited :: VertexIx a => Buffer a -> Int32 -> Int32 -> Word32 -> Word32 -> VertexPicker
 byIndexLimited buf first count min max =
 	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
