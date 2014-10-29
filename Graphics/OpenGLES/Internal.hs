@@ -140,6 +140,7 @@ instance GLType Int32 where glType _ = 0x1404
 instance GLType Word32 where glType _ = 0x1405
 
 instance GLType Float where glType _ = 0x1406
+instance GLType Double where glType _ = 0x140A -- OpenGL
 instance GLType HalfFloat where glType _ = 0x140B
 instance GLType FixedFloat where glType _ = 0x140C
 instance GLType Int2_10x3 where glType _ = 0x8D9F
@@ -424,6 +425,9 @@ newtype Uniform p a = Uniform (GLint, GLsizei, Ptr ())
 class UnifVal a where
 	glUniform :: (GLint, GLsizei, Ptr ()) -> a -> GL ()
 
+class UnifMat a where
+	glUnifMat :: GLint -> GLsizei -> GLboolean -> Ptr a -> GL ()
+
 --class GLVar m v a where
 --	($=) :: m p a -> a -> (m (), v ())
 --	($-) :: m p a -> v a -> (m (), v ())
@@ -452,6 +456,8 @@ class VertexAttribute a where
 class AttrStruct a p b | a -> p where
 	glVertexBuffer :: a -> Buffer b -> GL ()
 
+-- | The 3rd argument of glVertexAttribI?Pointer
+class GLType a => AttrElement a where
 
 -- ** Vertex Array Object
 

@@ -5,6 +5,7 @@ module Graphics.OpenGLES.Env where
 import Foreign
 import Foreign.C.String
 import Graphics.OpenGLES.Base
+import Graphics.OpenGLES.Internal (Shader(..))
 import System.IO.Unsafe (unsafePerformIO)
 
 -- * Extension detection
@@ -28,9 +29,9 @@ extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
 	GLsizei -> Ptr GLuint -> GL ())
 extVAO | hasES3 =
 		Just (glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays)
-        | hasExt "GL_OES_vertex_array_object" =
+		| hasExt "GL_OES_vertex_array_object" =
 		Just (glGenVertexArraysOES, glBindVertexArrayOES, glDeleteVertexArraysOES)
-        | otherwise = Nothing
+		| otherwise = Nothing
 
 
 -- * String Parameters
@@ -69,124 +70,124 @@ majorVersion, minorVersion, numExtensions,
 {-
 GL_MAX_3D_TEXTURE_SIZE
 
-    params returns one value, a rough estimate of the largest 3D texture that the GL can handle. The value must be at least 256. See glTexImage3D.
+	params returns one value, a rough estimate of the largest 3D texture that the GL can handle. The value must be at least 256. See glTexImage3D.
 GL_MAX_ARRAY_TEXTURE_LAYERS
 
-    params returns one value. The value indicates the maximum number of layers allowed in an array texture, and must be at least 256. See glTexImage2D.
+	params returns one value. The value indicates the maximum number of layers allowed in an array texture, and must be at least 256. See glTexImage2D.
 GL_MAX_AtomicCounter_BUFFER_BINDINGS
 
-    params returns one value, the maximum number of atomic counter buffer binding points. The value must be at least 1. See glBindBuffer, glBindBufferBase, and glBindBufferRange.
+	params returns one value, the maximum number of atomic counter buffer binding points. The value must be at least 1. See glBindBuffer, glBindBufferBase, and glBindBufferRange.
 GL_MAX_COLOR_ATTACHMENTS
 
-    params returns one value, the maximum number of color attachment points in a framebuffer object. The value must be at least 4. See glFramebufferRenderbuffer and glFramebufferTexture2D.
+	params returns one value, the maximum number of color attachment points in a framebuffer object. The value must be at least 4. See glFramebufferRenderbuffer and glFramebufferTexture2D.
 GL_MAX_COMBINED_FRAGMENT_UniformCOMPONENTS
 
-    params returns one value, the number of words for fragment shader uniform variables in all uniform blocks (including default). The value must be at least GL_MAX_FRAGMENT_UniformCOMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_FRAGMENT_UNIFORM_BLOCKS / 4. See glUniform.
+	params returns one value, the number of words for fragment shader uniform variables in all uniform blocks (including default). The value must be at least GL_MAX_FRAGMENT_UniformCOMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_FRAGMENT_UNIFORM_BLOCKS / 4. See glUniform.
 GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS
 
-    params returns one value, the maximum supported texture image units that can be used to access texture maps from the vertex shader and the fragment processor combined. If both the vertex shader and the fragment processing stage access the same texture image unit, then that counts as using two texture image units against this limit. The value must be at least 32. See glActiveTexture.
+	params returns one value, the maximum supported texture image units that can be used to access texture maps from the vertex shader and the fragment processor combined. If both the vertex shader and the fragment processing stage access the same texture image unit, then that counts as using two texture image units against this limit. The value must be at least 32. See glActiveTexture.
 GL_MAX_COMBINED_UNIFORM_BLOCKS
 
-    params returns one value, the maximum number of uniform blocks per program. The value must be at least 24. See glUniformBlockBinding.
+	params returns one value, the maximum number of uniform blocks per program. The value must be at least 24. See glUniformBlockBinding.
 GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS
 
-    params returns one value, the number of words for vertex shader uniform variables in all uniform blocks (including default). The value must be at least . GL_MAX_VERTEX_UNIFORM_COMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_VERTEX_UNIFORM_BLOCKS / 4. See glUniform.
+	params returns one value, the number of words for vertex shader uniform variables in all uniform blocks (including default). The value must be at least . GL_MAX_VERTEX_UNIFORM_COMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_VERTEX_UNIFORM_BLOCKS / 4. See glUniform.
 GL_MAX_CUBE_MAP_TEXTURE_SIZE
 
-    params returns one value. The value gives a rough estimate of the largest cube-map texture that the GL can handle. The value must be at least 2048. See glTexImage2D.
+	params returns one value. The value gives a rough estimate of the largest cube-map texture that the GL can handle. The value must be at least 2048. See glTexImage2D.
 GL_MAX_DRAW_BUFFERS
 
-    params returns one value, the maximum number of simultaneous outputs that may be written in a fragment shader. The value must be at least 4. See glDrawBuffers.
+	params returns one value, the maximum number of simultaneous outputs that may be written in a fragment shader. The value must be at least 4. See glDrawBuffers.
 GL_MAX_ELEMENT_INDEX
 
-    params returns one value, the maximum index supported by the implementation. The value must be at least 2 24 - 1 .
+	params returns one value, the maximum index supported by the implementation. The value must be at least 2 24 - 1 .
 GL_MAX_ELEMENTS_INDICES
 
-    params returns one value, the recommended maximum number of vertex array indices. See glDrawRangeElements.
+	params returns one value, the recommended maximum number of vertex array indices. See glDrawRangeElements.
 GL_MAX_ELEMENTS_VERTICES
 
-    params returns one value, the recommended maximum number of vertex array vertices. See glDrawRangeElements.
+	params returns one value, the recommended maximum number of vertex array vertices. See glDrawRangeElements.
 GL_MAX_FRAGMENT_INPUT_COMPONENTS
 
-    params returns one value, the maximum number of components of the inputs read by the fragment shader, which must be at least 60.
+	params returns one value, the maximum number of components of the inputs read by the fragment shader, which must be at least 60.
 GL_MAX_FRAGMENT_UNIFORM_BLOCKS
 
-    params returns one value, the maximum number of uniform blocks per fragment shader. The value must be at least 12. See glUniformBlockBinding.
+	params returns one value, the maximum number of uniform blocks per fragment shader. The value must be at least 12. See glUniformBlockBinding.
 GL_MAX_FRAGMENT_UNIFORM_COMPONENTS
 
-    params returns one value, the maximum number of individual floating-point, integer, or boolean values that can be held in uniform variable storage for a fragment shader. The value must be at least 896. See glUniform.
+	params returns one value, the maximum number of individual floating-point, integer, or boolean values that can be held in uniform variable storage for a fragment shader. The value must be at least 896. See glUniform.
 GL_MAX_FRAGMENT_UNIFORM_VECTORS
 
-    params returns one value, the maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a fragment shader. The value must be at least 224. See glUniform.
+	params returns one value, the maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a fragment shader. The value must be at least 224. See glUniform.
 GL_MAX_PROGRAM_TEXEL_OFFSET
 
-    params returns one value, the maximum texel offset allowed in a texture lookup, which must be at least 7.
+	params returns one value, the maximum texel offset allowed in a texture lookup, which must be at least 7.
 GL_MAX_RENDERBUFFER_SIZE
 
-    params returns one value. The value indicates the maximum supported size for renderbuffers and must be at least 2048. See glFramebufferRenderbuffer.
+	params returns one value. The value indicates the maximum supported size for renderbuffers and must be at least 2048. See glFramebufferRenderbuffer.
 GL_MAX_SAMPLE_MASK_WORDS
 
-    params returns one value, the maximum number of sample mask words.
+	params returns one value, the maximum number of sample mask words.
 GL_MAX_SAMPLES
 
-    params returns one value. The value indicates the maximum supported number of samples for multisampling. The value must be at least 4. See glGetInternalformativ.
+	params returns one value. The value indicates the maximum supported number of samples for multisampling. The value must be at least 4. See glGetInternalformativ.
 GL_MAX_SERVER_WAIT_TIMEOUT
 
-    params returns one value, the maximum glWaitSync timeout interval.
+	params returns one value, the maximum glWaitSync timeout interval.
 GL_MAX_SHADER_STORAGE_BLOCK_SIZE
 
-    params returns one value, the maximum size in basic machine units of a shader storage block. The value must be at least 2 27 .
+	params returns one value, the maximum size in basic machine units of a shader storage block. The value must be at least 2 27 .
 GL_MAX_TEXTURE_IMAGE_UNITS
 
-    params returns one value, the maximum supported texture image units that can be used to access texture maps from the fragment shader. The value must be at least 16. See glActiveTexture.
+	params returns one value, the maximum supported texture image units that can be used to access texture maps from the fragment shader. The value must be at least 16. See glActiveTexture.
 GL_MAX_TEXTURE_LOD_BIAS
 
-    params returns one value, the maximum, absolute value of the texture level-of-detail bias. The value must be at least 2.0.
+	params returns one value, the maximum, absolute value of the texture level-of-detail bias. The value must be at least 2.0.
 GL_MAX_TEXTURE_SIZE
 
-    params returns one value. The value gives a rough estimate of the largest texture that the GL can handle. The value must be at least 2048. See glTexImage2D.
+	params returns one value. The value gives a rough estimate of the largest texture that the GL can handle. The value must be at least 2048. See glTexImage2D.
 GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS
 
-    params returns one value, the maximum number of components which can be written to a single transform feedback buffer in interleaved mode. The value must be at least 64. See glTransformFeedbackVaryings.
+	params returns one value, the maximum number of components which can be written to a single transform feedback buffer in interleaved mode. The value must be at least 64. See glTransformFeedbackVaryings.
 GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS
 
-    params returns one value, the maximum separate attributes or outputs which can be captured in separate transform feedback mode. The value must be at least 4. See glTransformFeedbackVaryings.
+	params returns one value, the maximum separate attributes or outputs which can be captured in separate transform feedback mode. The value must be at least 4. See glTransformFeedbackVaryings.
 GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS
 
-    params returns one value, the maximum number of components which can be written per attribute or output in separate transform feedback mode. The value must be at least 4. See glTransformFeedbackVaryings.
+	params returns one value, the maximum number of components which can be written per attribute or output in separate transform feedback mode. The value must be at least 4. See glTransformFeedbackVaryings.
 GL_MAX_UNIFORM_BLOCK_SIZE
 
-    params returns one value, the maximum size in basic machine units of a uniform block. The value must be at least 16384. See glUniformBlockBinding.
+	params returns one value, the maximum size in basic machine units of a uniform block. The value must be at least 16384. See glUniformBlockBinding.
 GL_MAX_UNIFORM_BUFFER_BINDINGS
 
-    params returns one value, the maximum number of uniform buffer binding points on the context, which must be at least 24.
+	params returns one value, the maximum number of uniform buffer binding points on the context, which must be at least 24.
 GL_MAX_VARYING_COMPONENTS
 
-    params returns one value, the number components for varying variables, which must be at least 60.
+	params returns one value, the number components for varying variables, which must be at least 60.
 GL_MAX_VARYING_VECTORS
 
-    params returns one value, the maximum number of interpolators available for processing varying variables used by vertex and fragment shaders. This value represents the number of vector values that can be interpolated; varying variables declared as matrices and arrays will consume multiple interpolators. The value must be at least 15.
+	params returns one value, the maximum number of interpolators available for processing varying variables used by vertex and fragment shaders. This value represents the number of vector values that can be interpolated; varying variables declared as matrices and arrays will consume multiple interpolators. The value must be at least 15.
 GL_MAX_VERTEX_ATTRIBS
 
-    params returns one value, the maximum number of 4-component generic vertex attributes accessible to a vertex shader. The value must be at least 16. See glVertexAttrib.
+	params returns one value, the maximum number of 4-component generic vertex attributes accessible to a vertex shader. The value must be at least 16. See glVertexAttrib.
 GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
 
-    params returns one value, the maximum supported texture image units that can be used to access texture maps from the vertex shader. The value may be at least 16. See glActiveTexture.
+	params returns one value, the maximum supported texture image units that can be used to access texture maps from the vertex shader. The value may be at least 16. See glActiveTexture.
 GL_MAX_VERTEX_OUTPUT_COMPONENTS
 
-    params returns one value, the maximum number of components of output written by a vertex shader, which must be at least 64.
+	params returns one value, the maximum number of components of output written by a vertex shader, which must be at least 64.
 GL_MAX_VERTEX_UNIFORM_BLOCKS
 
-    params returns one value, the maximum number of uniform blocks per vertex shader. The value must be at least 12. See glUniformBlockBinding.
+	params returns one value, the maximum number of uniform blocks per vertex shader. The value must be at least 12. See glUniformBlockBinding.
 GL_MAX_VERTEX_UNIFORM_COMPONENTS
 
-    params returns one value, the maximum number of individual floating-point, integer, or boolean values that can be held in uniform variable storage for a vertex shader. The value must be at least 1024. See glUniform.
+	params returns one value, the maximum number of individual floating-point, integer, or boolean values that can be held in uniform variable storage for a vertex shader. The value must be at least 1024. See glUniform.
 GL_MAX_VERTEX_UNIFORM_VECTORS
 
-    params returns one value, the maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a vertex shader. The value must be at least 256. See glUniform.
+	params returns one value, the maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a vertex shader. The value must be at least 256. See glUniform.
 GL_MIN_PROGRAM_TEXEL_OFFSET
 
-    params returns one value, the minimum texel offset allowed in a texture lookup, which must be at most -8.
+	params returns one value, the minimum texel offset allowed in a texture lookup, which must be at most -8.
 -}
 
 -- ** Since ES 2.0
@@ -355,7 +356,7 @@ maxVertexAttribBindings = GLParam 0x82DA
 maxVertexAttribStride = GLParam 0x82E5
 
 
--- * Ranged Parameters (since ES 2.0)
+-- * Two-valued Parameters (since ES 2.0)
 
 newtype GLParamP = GLParamP GLenum
 
@@ -384,3 +385,27 @@ maxViewportDims = GLParamP 0x0D3A
 
 -- Ext
 --MAX_TEXTURE_MAX_ANISOTROPY_EXT      0x84FF
+
+
+-- * Shader Precision
+
+-- | > shaderPrecision vertexShader highFp == (min, max, precision)
+shaderPrecision :: (GLName -> a -> Shader) -> PrecisionType -> GL (Int32, Int32, Int32)
+shaderPrecision shader (Prec precTyp) = 
+	allocaArray 3 $ \range -> do
+		let shaderType = case shader "" undefined of Shader x _ _ -> x
+		let prec = advancePtr range 8
+		glGetShaderPrecisionFormat shaderType precTyp range prec
+		rmin <- peek range
+		rmax <- peekByteOff range 4
+		precision <- peek prec
+		return (rmin, rmax, precision)
+
+newtype PrecisionType = Prec GLenum
+lowFp = Prec 0x8DF0
+midiumFp = Prec 0x8DF1
+highFp = Prec 0x8DF2
+lowInt = Prec 0x8DF3
+midiumInt = Prec 0x8DF4
+highInt = Prec 0x8DF5
+

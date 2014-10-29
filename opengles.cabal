@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.6.1
+version:             0.6.2
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      The mission statement of this library is three F: Fun, Fast, yet Flexible.
@@ -33,6 +33,8 @@ library
 
   exposed-modules:
     Graphics.EGL,
+    Graphics.OpenGL.CoreArb,
+    Graphics.OpenGL.Types,
     Graphics.OpenGLES,
     Graphics.OpenGLES.Base,
     Graphics.OpenGLES.Buffer,
@@ -65,5 +67,5 @@ library
   
   if os(ios)
     frameworks: QuartzCore, OpenGLES
-  ghc-options: -Wall -fexcess-precision  -funbox-strict-fields
+  ghc-options: -Wall -threaded -fexcess-precision  -funbox-strict-fields
   

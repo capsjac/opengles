@@ -105,6 +105,7 @@ type family SizeOf (f :: *) :: Nat where
 	SizeOf (V2 a) = 2 * SizeOf a
 	SizeOf (V3 a) = 3 * SizeOf a
 	SizeOf (V4 a) = 4 * SizeOf a
+	SizeOf Double = 8 -- OpenGL
 
 type family Aligned (x :: Nat) :: Nat where
 	Aligned 0 = 0
@@ -181,8 +182,6 @@ instance UnifVal [UVec2] where glUniform = pokeUniformArray glUniform2uiv
 instance UnifVal [UVec3] where glUniform = pokeUniformArray glUniform3uiv
 instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
 
-class UnifMat a where
-	glUnifMat :: GLint -> GLsizei -> GLboolean -> Ptr a -> GL ()
 castMat a b c d e = a b c d (castPtr e)
 
 instance UnifMat Mat2 where glUnifMat = castMat glUniformMatrix2fv
@@ -241,16 +240,14 @@ instance VertexAttribute a => VertexAttribute (V1 a) where
 	glVertexAttrib ix (V1 x) = glVertexAttrib ix x
 
 -- | Matrices __Not tested!!!__
-instance (Functor f, VertexAttribute (f Float), FoldableWithIndex (E V4) g,
-		Distributive g) => VertexAttribute (f (g Float)) where
+instance (Functor f, Floating a, Distributive g, VertexAttribute (f a),
+		FoldableWithIndex (E V4) g) => VertexAttribute (f (g a)) where
 	glVertexAttrib ix m = iforM_ (distribute m) $
 		\(E i) v -> do
 			let index = ix + (V4 0 1 2 3)^.i
 			glDisableVertexAttribArray index
 			glVertexAttrib index v
 
--- | The 3rd argument of glVertexAttribI?Pointer
-class GLType a => AttrElement a where
 instance AttrElement Word8
 instance AttrElement Word16
 instance AttrElement Word32
@@ -313,14 +310,15 @@ instance forall p a b v a' b'.
 
 -- XXX (V4 Int2_10x3) (V3 Word2_10x3) cannot match here
 instance
-	( VertexAttribute (f (g Float))
+	( VertexAttribute (f (g a))
 	, Applicative g
+	, Floating a -- Float or Double
 	, FoldableWithIndex (E V4) g
 	, KnownNat (VDim f)
 	, KnownNat (SizeOf (f a))
 	, KnownNat (SizeOf (f (g a))) -- (Aligned (SizeOf (f (g a))))
 	, AttrElement a )
-	=> AttrStruct (Attrib p (f (g Float))) p (f (g a)) where
+	=> AttrStruct (Attrib p (f (g a))) p (f (g a)) where
 
 	glVertexBuffer (Attrib (index, length, normalize, divisor)) buf = do
 		iforM_ (pure () :: g ()) $ \(E e) _ -> do
