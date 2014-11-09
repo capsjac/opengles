@@ -31,7 +31,7 @@ import Control.Applicative
 import Data.IORef
 import Foreign
 import Graphics.OpenGLES.Base
-import Graphics.OpenGLES.Env (hasES3)
+import Graphics.OpenGLES.Caps (hasES3)
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.PixelFormat
 import Graphics.OpenGLES.State

@@ -35,7 +35,7 @@ import Data.Int
 import Data.Word
 import Data.IORef
 import Graphics.OpenGLES.Base
-import Graphics.OpenGLES.Env
+import Graphics.OpenGLES.Caps
 import Graphics.OpenGLES.Internal
 --import Graphics.OpenGLES.PixelFormat
 import Graphics.TextureContainer.KTX

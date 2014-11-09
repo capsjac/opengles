@@ -84,7 +84,7 @@ import Foreign
 import Foreign.C.String (peekCStringLen)
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Buffer
-import Graphics.OpenGLES.Env
+import Graphics.OpenGLES.Caps
 import Graphics.OpenGLES.Internal
 
 

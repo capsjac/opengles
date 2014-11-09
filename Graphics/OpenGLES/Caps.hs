@@ -1,7 +1,7 @@
 -- | Retriving implementation depend constant values.
 -- Do NOT call below APIs out of OpenGL threads.
 -- (glGetString could return null pointer!)
-module Graphics.OpenGLES.Env where
+module Graphics.OpenGLES.Caps where
 import Foreign
 import Foreign.C.String
 import Graphics.OpenGLES.Base
@@ -22,16 +22,17 @@ hasExt ext = ext `elem` glExtensions
 --glGetString 0x1F03 >>= indexOf ext /= -1
 
 hasES3 :: Bool
-hasES3 = glEnv majorVersion > 2
+hasES3 = glCap majorVersion > 2
 
 extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
 	GLuint -> GL (),
 	GLsizei -> Ptr GLuint -> GL ())
-extVAO | hasES3 =
+extVAO
+	| hasES3 =
 		Just (glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays)
-		| hasExt "GL_OES_vertex_array_object" =
+	| hasExt "GL_OES_vertex_array_object" =
 		Just (glGenVertexArraysOES, glBindVertexArrayOES, glDeleteVertexArraysOES)
-		| otherwise = Nothing
+	| otherwise = Nothing
 
 
 -- * String Parameters
@@ -58,8 +59,8 @@ newtype GLParam = GLParam GLenum
 -- GL_INVALID_ENUM is generated if pname is not an accepted value.
 
 -- ??? add failure value?
-glEnv :: GLParam -> Int32
-glEnv (GLParam param) = unsafePerformIO $
+glCap :: GLParam -> Int32
+glCap (GLParam param) = unsafePerformIO $
 	with 0 $ \ptr -> glGetIntegerv param ptr >> peek ptr
 
 -- !!! add version for ES3+ or Ext, copy desc from man, least value for each version

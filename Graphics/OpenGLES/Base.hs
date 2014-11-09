@@ -361,7 +361,7 @@ module Graphics.OpenGLES.Base (
 	) where
 import Foreign
 import Foreign.C.String
-import Graphics.EGL (eglGetProcAddress)
+import Graphics.EGL.Base (eglGetProcAddress)
 --XXX unify Wrappers by args
 -- * Basic Types
 

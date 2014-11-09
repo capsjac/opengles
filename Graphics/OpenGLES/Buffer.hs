@@ -47,8 +47,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.IORef
 import Graphics.OpenGLES.Base
+import Graphics.OpenGLES.Caps
 import Graphics.OpenGLES.Internal
-import Graphics.OpenGLES.Env
 import Graphics.OpenGLES.Types
 import Foreign hiding (newArray)
 
