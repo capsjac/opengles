@@ -4,7 +4,7 @@
 module Graphics.OpenGL.CoreArb where
 import Foreign
 import Foreign.C.String
-import Graphics.EGL (eglGetProcAddress)
+import Graphics.EGL.Base (eglGetProcAddress)
 import Graphics.OpenGLES.Base
 
 -- * Basic Types

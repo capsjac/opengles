@@ -59,13 +59,13 @@ eglResume egl window = do
 	cur@EglCurrent{..} <- readIORef egl
 	let share = nullPtr
 	if disp == nullPtr then do -- context not initialized
-		(disp, config) <- setupEgl ndisp confcand
-		(surf, w, h) <- setSurface disp config window
+		(display, config) <- setupEgl ndisp confcand
+		(surf, w, h) <- setSurface display config window
 		cxt <- withAttrList (map (\(EGLContextAttr a,b)->(a,b))cxtconf) $
-			eglCreateContext disp config share
-		eglMakeCurrent disp surf surf cxt
+			eglCreateContext display config share
+		eglMakeCurrent display surf surf cxt
 		writeIORef egl cur
-			{ disp = disp
+			{ disp = display
 			, chosen = config
 			, context = cxt
 			, dsurf = surf
