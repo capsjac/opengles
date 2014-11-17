@@ -1,11 +1,18 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Graphics.OpenGLES.Texture (
   -- * Texture
   Texture,
+  texSlot,
+  
   glLoadKtx,
   glLoadKtxFile,
-
-  texSlot,
+  
+  -- ** Unsafe Operations
+  glLoadTex2D,
+  --glLoadCubeMap,
+  glLoadTex3D,
+  glLoadTex2DArray,
 
   -- * Sampler
   setSampler,
@@ -31,16 +38,18 @@ module Graphics.OpenGLES.Texture (
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Internal as B
 import Data.Int
 import Data.Word
 import Data.IORef
+import Data.Proxy
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Caps
 import Graphics.OpenGLES.Internal
---import Graphics.OpenGLES.PixelFormat
+import Graphics.OpenGLES.PixelFormat
 import Graphics.TextureContainer.KTX
-import Foreign.Ptr (castPtr)
-
+import Foreign hiding (void)
+import Linear
 -- XXX Texture DoubleBufferring
 
 newtype Texture3D a = Texture3D (Texture a)
@@ -80,18 +89,10 @@ data TextureData =
 glLoadKtx :: Maybe (Texture a) -> Ktx -> GL (Texture a)
 glLoadKtx oldtex ktx@Ktx{..} = do
 	--putStrLn.show $ ktx
-	let newTexture target = case oldtex of
-		Just (Texture _ ref glo) -> do
-			writeIORef ref ktx
-			glBindTexture target =<< getObjId glo
-			return (Texture target ref glo)
-		Nothing -> Texture target
-			<$> newIORef ktx
-			<*> newGLO glGenTextures glDeleteTextures (glBindTexture target)
 	case checkKtx ktx of
-		Left msg -> glLog (msg ++ ": " ++ ktxName) >> newTexture 0
+		Left msg -> glLog (msg ++ ": " ++ ktxName) >> newTexture oldtex 0 ktx
 		Right (comp, target, genmip) -> do
-			tex <- newTexture target
+			tex <- newTexture oldtex target ktx
 			-- ES2 compat;
 			let fmt = if comp || sizedFormats
 				then if ktxGlInternalFormat == 0x8D64 && hasETC2 -- ETC1_RGB8_OES
@@ -152,6 +153,14 @@ glLoadKtx oldtex ktx@Ktx{..} = do
 glLoadKtxFile :: FilePath -> GL (Texture a)
 glLoadKtxFile path = ktxFromFile path >>= glLoadKtx Nothing
 
+newTexture :: Maybe (Texture a) -> GLenum -> Ktx -> GL (Texture a)
+newTexture (Just (Texture _ ref glo)) target ktx = do
+	writeIORef ref ktx
+	glBindTexture target =<< getObjId glo
+	return $ Texture target ref glo
+newTexture Nothing target ktx =
+	Texture target <$> newIORef ktx <*> newGLO glGenTextures glDeleteTextures (glBindTexture target)
+
 -- glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
 --hasES2 =
 --	supportsSwizzle = GL_FALSE;
@@ -203,7 +212,70 @@ needsGenMipmap Ktx {..}
 needsGenMipmap _ = Right False
 
 
--- ** Sampler
+-- ** Unsafe Operations
+
+-- | Upload 2D texture of raw memory bitmap.
+glLoadTex2D
+	:: forall a b. (Storable a, ExternalFormat a b)
+	=> Maybe (Texture b) -- ^ if any, reuse the texture
+	-> Bool -- ^ needs mipmap update?
+	-> ForeignPtr a -- ^ pixel base components
+	-> V2 Word32 -- ^ width, height
+	-> GL (Texture b)
+glLoadTex2D oldtex newmip fp (V2 w h) = do
+	let (fmt, typ, ifmt) = efmt (Proxy :: Proxy (a, b))
+	let n = sizeOf (undefined :: a)
+	let ktx = Ktx "" B.empty typ 4 fmt ifmt fmt w h 0 0 1 0 []
+		[[B.PS (castForeignPtr fp) 0 (fromIntegral (w*h)*n)]]
+	let target = 0x0DE1
+	tex <- newTexture oldtex target ktx
+	withForeignPtr fp $ \ptr ->
+		glTexImage2D target 0 ifmt w h 0 fmt typ (castPtr ptr)
+	when newmip (glGenerateMipmap target)
+	return tex
+
+-- | Upload 3D texture of raw memory bitmap.
+glLoadTex3D
+	:: forall a b. (Storable a, ExternalFormat a b)
+	=> Maybe (Texture b) -- ^ if any, reuse the texture
+	-> Bool -- ^ needs mipmap update?
+	-> ForeignPtr a -- ^ pixel base components
+	-> V3 Word32 -- ^ width, height, depth
+	-> GL (Texture b)
+glLoadTex3D oldtex newmip fp (V3 w h d) = do
+	let (fmt, typ, ifmt) = efmt (Proxy :: Proxy (a, b))
+	let n = sizeOf (undefined :: a)
+	let ktx = Ktx "" B.empty typ 4 fmt ifmt fmt w h d 0 1 0 []
+		[[B.PS (castForeignPtr fp) 0 (fromIntegral (w*h*d)*n)]]
+	let target = 0x806F
+	tex <- newTexture oldtex target ktx
+	withForeignPtr fp $ \ptr ->
+		glTexImage3D target 0 ifmt w h d 0 fmt typ (castPtr ptr)
+	when newmip (glGenerateMipmap target)
+	return tex
+
+-- | Upload 2DArray texture of raw memory bitmap.
+glLoadTex2DArray
+	:: forall a b. (Storable a, ExternalFormat a b)
+	=> Maybe (Texture b) -- ^ if any, reuse the texture
+	-> Bool -- ^ needs mipmap update?
+	-> ForeignPtr a -- ^ pixel base components
+	-> V3 Word32 -- ^ width, height, layer depth
+	-> GL (Texture b)
+glLoadTex2DArray oldtex newmip fp (V3 w h d) = do
+	let (fmt, typ, ifmt) = efmt (Proxy :: Proxy (a, b))
+	let n = sizeOf (undefined :: a)
+	let ktx = Ktx "" B.empty typ 4 fmt ifmt fmt w h 0 d 1 0 []
+		[[B.PS (castForeignPtr fp) 0 (fromIntegral (w*h*d)*n)]]
+	let target = 0x8C1A
+	tex <- newTexture oldtex target ktx
+	withForeignPtr fp $ \ptr ->
+		glTexImage3D target 0 ifmt w h d 0 fmt typ (castPtr ptr)
+	when newmip (glGenerateMipmap target)
+	return tex
+
+
+-- * Sampler
 
 -- 2d vs. 3d / mag + min vs. max
 -- | (Texture wrap mode, A number of ANISOTROPY filter sampling points

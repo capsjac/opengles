@@ -13,10 +13,12 @@ module Graphics.OpenGLES.Buffer (
   GLArray,
   GLSource(..),
   glLoad, glReload, glUnsafeRead, glModify, glMap,
+
   -- ** Updating Mutable Buffers
-  withStorableArraySize,
+  unsafeWithLen,
   BufferUsage, app2gl, app2glDyn, app2glStream,
   gl2app, gl2appDyn, gl2appStream, gl2gl, gl2glDyn, gl2glStream,
+  
   -- ** Raw Buffer Operations
   bindBuffer, bindBufferRange, bindBufferBase,
   bufferData, bufferSubData, 
@@ -41,20 +43,18 @@ module Graphics.OpenGLES.Buffer (
   ) where
 
 import Control.Applicative
-import Data.Array.Storable
-import Data.Array.Storable.Internals
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.IORef
+import qualified Data.Vector.Storable as V
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Caps
 import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.Types
-import Foreign hiding (newArray)
+import Foreign
+
 
 -- ** Constructing Mutable Buffers
-
-type GLArray a = StorableArray Int a
 
 type family Content a x :: *
 type instance Content Int x = x
@@ -74,11 +74,11 @@ instance Storable b => GLSource Int b where
 			>> return (), len)
 
 instance Storable a => GLSource ([a], Int) a where
-	makeAref (xs, len) = Left <$> newListArray (0, len - 1) (cycle xs)
+	makeAref (xs, len) = return . Left $ V.fromListN len (cycle xs)
 	makeWriter (xs, len) = (\ptr -> pokeArray ptr xs, len)
 
 instance Storable a => GLSource [a] a where
-	makeAref xs = Left <$> newListArray (0, length xs - 1) xs
+	makeAref xs = return . Left $ V.fromList xs
 	makeWriter xs = (\ptr -> pokeArray ptr xs, length xs)
 
 instance Storable b => GLSource B.ByteString b where
@@ -86,8 +86,8 @@ instance Storable b => GLSource B.ByteString b where
 		let fp | offset == 0 = foreignPtr
 		       | otherwise = case B.copy bs of (B.PS f _ _) -> f
 		let elems = (len `div` sizeOf (undefined :: b))
-		let array = StorableArray 0 (elems-1) elems (castForeignPtr fp)
-		return (Left array)
+		let vec = V.unsafeFromForeignPtr0 (castForeignPtr fp) elems
+		return (Left vec)
 	makeWriter (B.PS fp offset len) = (\dst ->
 		withForeignPtr fp $ \src ->
 			B.memcpy (castPtr dst) (advancePtr (castPtr src) offset) len
@@ -95,11 +95,12 @@ instance Storable b => GLSource B.ByteString b where
 
 instance Storable a => GLSource (GLArray a) a where
 	makeAref = return . Left
-	makeWriter sa@(StorableArray _ _ len fp) =
+	makeWriter vec =
 		(\dst -> withForeignPtr fp $ \src ->
-			B.memcpy (castPtr dst) (castPtr src)
+				B.memcpy (castPtr dst) (castPtr src)
 			(len * sizeOf (undefined :: a))
 		, len)
+		where (fp, len) = V.unsafeToForeignPtr0 vec
 
 --instance GLSource (Buffer a) a where
 --	makeAref (Buffer aref glo) = return . Left =<< go =<< readIORef aref
@@ -133,8 +134,8 @@ glLoad usage src = do
 	Buffer aref <$> newBuffer (do
 		array <- readIORef aref
 		case array of
-			Left sa ->
-				withStorableArraySize sa (bufferData array_buffer usage)
+			Left vector ->
+				unsafeWithLen vector (bufferData array_buffer usage)
 			Right elems ->
 				bufferData array_buffer usage (elems * unit) nullPtr
 		void $ showError "glBufferData"
@@ -144,11 +145,10 @@ glLoad usage src = do
 newBuffer init = newGLO glGenBuffers glDeleteBuffers
 	(\i -> glBindBuffer 0x8892 i >> init) -- GL_ARRAY_BUFFER
 
-newArrayLen elems unit = do
-	sa@(StorableArray _ _ _ fp) <- newArray_ (0, elems - 1)
-	withForeignPtr fp $ \dst ->
-		B.memset (castPtr dst) 0 (fromIntegral $ elems * unit)
-	return sa
+newVector :: Storable a => Int -> Int -> IO (GLArray a)
+newVector elems unit = do
+	let B.PS fp _ _ = B.replicate (elems * unit) 0
+	return $ V.unsafeFromForeignPtr0 (castForeignPtr fp) elems
 
 glReload :: forall a b. GLSource a b => Buffer b -> Int -> a -> GL ()
 glReload buf@(Buffer aref glo) offsetIx src = do
@@ -164,18 +164,18 @@ glReload buf@(Buffer aref glo) offsetIx src = do
 		fillSubArray ptr
 		unmapBuffer array_buffer
 		showError "glUnmapBuffer"
-		case aref' of Left (StorableArray _ _ len _) ->
-				writeIORef aref (Right (len * unit))
+		case aref' of Left vec ->
+				writeIORef aref (Right (V.length vec * unit))
 	else do
-		sa@(StorableArray _ _ len fp) <- case aref' of
+		vector <- case aref' of
 			Left array -> return array
-			Right elems -> newArrayLen elems unit
-		withForeignPtr fp $ \p -> do
+			Right elems -> newVector elems unit
+		V.unsafeWith vector $ \p -> do
 			let ptr = advancePtr p (offsetIx * unit)
 			fillSubArray ptr
 			bufferSubData array_buffer (offsetIx * unit) size ptr
 			showError "glBufferSubData"
-		writeIORef aref (Left sa)
+		writeIORef aref (Left vector)
 
 
 glUnsafeRead :: forall a. Storable a => Buffer a -> (Int, Int) -> GL (GLArray a)
@@ -183,65 +183,61 @@ glUnsafeRead buf@(Buffer aref glo) (offsetIx, len) = do
 	bindBuffer array_buffer buf
 	array <- readIORef aref
 	case array of
-		Left (StorableArray s e l fp) -> -- unsafe!
-			return (StorableArray s e l fp)
+		Left vector -> -- unsafe!
+			return vector
 		Right elems -> do
-			sa <- newArrayLen (min len (elems - offsetIx)) unit
+			vec <- newVector (min len (elems - offsetIx)) unit
 			if hasES3 then do
 				src <- mapBufferRange array_buffer (offsetIx * unit) (len * unit)
 					(map_read_bit {- + map_unsynchronized_bit-})
-				withStorableArray sa $ \dst ->
+				V.unsafeWith vec $ \dst ->
 					B.memcpy (castPtr dst) src (len * unit)
 				unmapBuffer array_buffer
-				writeIORef aref (Left sa) -- backup
-				return sa
-			else return sa
+				writeIORef aref (Left vec) -- backup
+				return vec
+			else return vec
 	where unit = sizeOf (undefined :: a)
 
-glModify :: forall a. Storable a => Buffer a -> (Int, Int) -> (GLArray a -> GL ()) -> GL ()
-glModify buf@(Buffer aref glo) (offsetIx, len) f = do
+glModify :: forall a. Storable a => Buffer a -> Int -> Int -> (GLArray a -> GL ()) -> GL ()
+glModify buf@(Buffer aref glo) offsetIx len f = do
 	bindBuffer array_buffer buf
 	if hasES3 then do
 		a <- readIORef aref
 		let elems = case a of
 			Right elems -> elems
-			Left (StorableArray _ _ elems _) -> elems 
+			Left vector -> V.length vector
 		ptr <- mapBufferRange array_buffer 0 (len * unit)
 					(map_read_bit + map_write_bit {- + map_unsynchronized_bit-})
 		fp <- newForeignPtr_ ptr
-		f $ StorableArray 0 (elems-1) elems fp
+		f $ V.unsafeFromForeignPtr0 fp elems
 		unmapBuffer array_buffer
 		writeIORef aref (Right elems)
 	else do
 		a <- readIORef aref
 		case a of 
-			Left sa -> do
-				f sa
-				withStorableArraySize sa (bufferSubData array_buffer 0)
+			Left vector -> do
+				f vector
+				unsafeWithLen vector (bufferSubData array_buffer 0)
 			Right elems -> do
-				sa <- newArrayLen elems unit
-				f sa
-				withStorableArraySize sa (bufferSubData array_buffer 0)
+				vec <- newVector elems unit
+				f vec
+				unsafeWithLen vec (bufferSubData array_buffer 0)
 	where unit = sizeOf (undefined :: a)
 
-glMap :: Storable a => (a -> GL a) -> Buffer a -> (Int, Int) -> GL ()
-glMap f buffer offLen = glModify buffer offLen $
-	\(StorableArray _ _ len fp) ->
- 	withForeignPtr fp $ \ptr ->
-		sequence_
-			[ peekElemOff ptr i >>= f >>= pokeElemOff ptr i
-			| i <- [0..len-1] ]
+glMap :: Storable a => (a -> GL a) -> Buffer a -> Int -> Int -> GL ()
+glMap f buffer off len = glModify buffer off len (V.mapM_ f)
 
 
 -- ** Updating Mutable Buffers
 
 
-withStorableArraySize
-	:: forall i e a. Storable e
-	=> StorableArray i e -> (Int -> Ptr e -> IO a) -> IO a
-withStorableArraySize (StorableArray _ _ n fp) f =
+unsafeWithLen
+	:: forall a b. Storable a
+	=> GLArray a -> (Int -> Ptr a -> IO b) -> IO b
+unsafeWithLen vector f = do
+	let (fp, len) = V.unsafeToForeignPtr0 vector
+	let size = len * sizeOf (undefined :: a)
 	withForeignPtr fp (f size)
-	where size = n * sizeOf (undefined :: e)
 
 -- hasMapBufferRange = hasES3
 -- GL_NV_map_buffer_range	5devices	2%

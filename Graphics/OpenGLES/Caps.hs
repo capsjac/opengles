@@ -1,6 +1,6 @@
--- | Retriving implementation depend constant values.
+-- | Retriving implementation limits.
 -- Do NOT call below APIs out of OpenGL threads.
--- (glGetString could return null pointer!)
+-- (glGetString may return null pointer!)
 module Graphics.OpenGLES.Caps where
 import Foreign
 import Foreign.C.String
@@ -8,22 +8,28 @@ import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Internal (Shader(..))
 import System.IO.Unsafe (unsafePerformIO)
 
+
 -- * Extension detection
 
 {-# NOINLINE glExtensions #-}
+-- | The list of available extensions on this GL implementation.
 glExtensions :: [String]
 glExtensions = unsafePerformIO $
 	glGetString 0x1F03 >>= peekCString >>= return.words
 
 {-# NOINLINE hasExt #-}
+-- | True if this GL has the extension.
 hasExt :: String -> Bool
 hasExt ext = ext `elem` glExtensions
 --hasExt :: CString -> Bool
 --glGetString 0x1F03 >>= indexOf ext /= -1
 
+{-# NOINLINE hasES3 #-}
+-- | True if this GL version is 3 or later. 
 hasES3 :: Bool
 hasES3 = glCap majorVersion > 2
 
+-- | Internally used.
 extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
 	GLuint -> GL (),
 	GLsizei -> Ptr GLuint -> GL ())
@@ -38,11 +44,64 @@ extVAO
 -- * String Parameters
 
 glVendor, glRenderer, glVersion, glShadingLanguageVersion :: String
+-- | The company responsible for this GL implementation. This name does not change from release to release.
 glVendor = unsafePerformIO $ glGetString 0x1F00 >>= peekCString
+
+-- | The renderer name typically specific to a particular configuration of a hardware platform. It does not change from release to release.
 glRenderer = unsafePerformIO $ glGetString 0x1F01 >>= peekCString
+
+-- | A version or release number of the form \"OpenGL ES (version number) (vendor-specific information)\"
 glVersion = unsafePerformIO $ glGetString 0x1F02 >>= peekCString
+
+-- | A version or release number for the shading language of the form \"OpenGL ES GLSL ES (version number) (vendor-specific information)\"
 glShadingLanguageVersion = unsafePerformIO $ glGetString 0x8B8C >>= peekCString
 
+
+-- * Two-valued Parameters
+
+newtype GLParamP = GLParamP GLenum
+
+glPair :: GLParamP -> (Float, Float)
+glPair (GLParamP param) = unsafePerformIO $
+	with (0 :: Double) $ \ptr -> do
+		let p = castPtr ptr
+		glGetFloatv param p
+		r1 <- peek p
+		r2 <- peekByteOff p 4
+		return (r1, r2)
+
+aliasedPointSizeRange, aliasedLineWidthRange, maxViewportDims :: GLParamP
+
+-- | The (smallest, largest) supported sizes for points.
+-- The smallest size must be \<= 1, and the largest size must be \>= 1.
+aliasedPointSizeRange = GLParamP 0x846D
+
+-- | The range of widths supported for aliased lines.
+aliasedLineWidthRange = GLParamP 0x846E
+
+-- | The maximum supported width and height of the viewport. These must be at least as large as the visible dimensions of the display being rendered to.
+maxViewportDims = GLParamP 0x0D3A
+
+
+-- * List Parameters
+
+--GL_COMPRESSED_TEXTURE_FORMATS
+--params returns a list of symbolic
+--                        constants of length GL_NUM_COMPRESSED_TEXTURE_FORMATS 
+--                        indicating which compressed texture formats are available.
+--                        See glCompressedTexImage2D.
+--compressedTextureFormats = GLParamL 0x86A3
+--GL_SHADER_BINARY_FORMATS
+--                        params returns a list of symbolic
+--                        constants of length GL_NUM_SHADER_BINARY_FORMATS 
+--                        indicating which shader binary formats are available.
+--                        See glShaderBinary.
+--shaderBinaryFormats = GLParamL 0x8DF8
+
+-- ES3.0
+--GL_PROGRAM_BINARY_FORMATS
+--    params returns a list of symbolic constants of length GL_NUM_PROGRAM_BINARY_FORMATS indicating which program binary formats are available. See glProgramBinary.
+--programBinaryFormats = GLParamL 0x87FF
 
 -- * Integer Parameters
 
@@ -58,23 +117,22 @@ newtype GLParam = GLParam GLenum
 --  	GLboolean * data);
 -- GL_INVALID_ENUM is generated if pname is not an accepted value.
 
--- ??? add failure value?
+-- | Returns the implementation dependent value or 0 if unsupported.
 glCap :: GLParam -> Int32
 glCap (GLParam param) = unsafePerformIO $
 	with 0 $ \ptr -> glGetIntegerv param ptr >> peek ptr
 
 -- !!! add version for ES3+ or Ext, copy desc from man, least value for each version
 
-majorVersion, minorVersion, numExtensions,
-	numProgramBinaryFormats :: GLParam
+{-- | a rough estimate of the largest 3D texture that the GL can handle. The value must be at least 256.
+max3DTextureSize = GLParam 
 
-{-
 GL_MAX_3D_TEXTURE_SIZE
 
-	params returns one value, a rough estimate of the largest 3D texture that the GL can handle. The value must be at least 256. See glTexImage3D.
+	params returns one value,  See glTexImage3D.
 GL_MAX_ARRAY_TEXTURE_LAYERS
 
-	params returns one value. The value indicates the maximum number of layers allowed in an array texture, and must be at least 256. See glTexImage2D.
+	params returns one value. 
 GL_MAX_AtomicCounter_BUFFER_BINDINGS
 
 	params returns one value, the maximum number of atomic counter buffer binding points. The value must be at least 1. See glBindBuffer, glBindBufferBase, and glBindBufferRange.
@@ -191,9 +249,46 @@ GL_MIN_PROGRAM_TEXEL_OFFSET
 	params returns one value, the minimum texel offset allowed in a texture lookup, which must be at most -8.
 -}
 
+
 -- ** Since ES 2.0
 
--- | the number of available compressed texture formats.
+-- | The format chosen by the implementation in which pixels may be read from the color buffer of the currently bound framebuffer in conjunction with GL_IMPLEMENTATION_COLOR_READ_TYPE. In addition to this implementation-dependent format/type pair, format GL_RGBA in conjunction with type GL_UNSIGNED_BYTE is always allowed by every                       implementation, regardless of the currently bound render surface. See glReadPixels.
+implementationColorReadFormat = GLParam 0x8B9B
+
+-- | The type chosen by the implementation with which pixels may be read from the color buffer of the currently bound framebuffer in conjunction with GL_IMPLEMENTATION_COLOR_READ_FORMAT. In addition to this implementation-dependent format/type pair, format  GL_RGBA in conjunction with type  GL_UNSIGNED_BYTE is always allowed by every implementation, regardless of the currently bound render surface. See glReadPixels.
+implementationColorReadType = GLParam 0x8B9A
+
+-- | The maximum supported texture image units that can be used to access texture maps from the vertex shader and the fragment processor combined. If both the vertex shader and the fragment processing stage access the same texture image unit, then that counts as using two texture image units against this limit. The minimum value is 8-32-32.
+maxCombinedTextureImageUnits = GLParam 0x8B4D
+
+-- | The value gives a rough estimate of the largest cube-map texture that the GL can handle. The minimum value is 16-2048-2048.
+maxCubeMapTextureSize = GLParam 0x851C
+
+-- | The maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a fragment shader. The minimum value is 16-224-224.
+maxFragmentUniformVectors = GLParam 0x8DFD
+
+-- | The value indicates the maximum supported size for renderbuffers and must be at least 1-?-2048.
+maxRenderbufferSize = GLParam 0x84E8
+
+-- | The maximum supported texture image units that can be used to access texture maps from the fragment shader. The minimum value is 8-?-16.
+maxTextureImageUnits = GLParam 0x8872
+
+-- | The value gives a rough estimate of the largest texture that the GL can handle. The minimum value is 64-?-2048.
+maxTextureSize = GLParam 0x0D33
+
+-- | The maximum number of interpolators available for processing varying variables used by vertex and fragment shaders. This value represents the number of vector values that can be interpolated; varying variables declared as matrices and arrays will consume multiple interpolators. The minimum value is 8-?-15.
+maxVaryingVectors = GLParam 0x8DFC
+
+-- | The maximum number of 4-component generic vertex attributes accessible to a vertex shader. The minimum value is 8-?-16.
+maxVertexAttribs = GLParam 0x8869
+
+-- | The maximum supported texture image units that can be used to access texture maps from the vertex shader. The minimum value is 0-?-16.
+maxVertexTextureImageUnits = GLParam 0x8B4C
+
+-- | The maximum number of vector floating-point, integer, or boolean values that can be held in uniform variable storage for a vertex shader. The minimum value is 128-?-256.
+maxVertexUniformVectors = GLParam 0x8DFB
+
+-- | The number of available compressed texture formats.
 -- The minimum value is 0-10-10.
 numCompressedTextureFormats = GLParam 0x86A2
 
@@ -202,8 +297,34 @@ numCompressedTextureFormats = GLParam 0x86A2
 -- Note: Not supported on most platforms.
 numShaderBinaryFormats = GLParam 0x8DF9
 
+-- | An estimate of the number of bits of subpixel resolution that are used to position rasterized geometry in window coordinates. The minimum value is 4-?-?.
+subpixelBits = GLParam 0x0D50
+
 
 -- ** Since ES 3.0
+
+-- | A rough estimate of the largest 3D texture that the GL can handle. The minimum value is 0-256-256.
+max3DTextureSize = GLParam 0x8073
+
+-- | The value indicates the maximum number of layers allowed in an array texture. The minimum value is 0-256-256.
+maxArrayTextureLayers = GLParam 0x88FF
+
+-- | The maximum number of color attachment points in a framebuffer object. The minimum value is 0-4-4.
+maxColorAttachments = GLParam 0x8CDF
+
+-- | The number of words for fragment shader uniform variables in all uniform blocks (including default). The value must be at least GL_MAX_FRAGMENT_UNIFORM_COMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_FRAGMENT_UNIFORM_BLOCKS / 4.
+maxCombinedFragmentUniformComponents = GLParam 0x8A33
+
+-- | The maximum number of uniform blocks per program. The minimum value is 0-24-24.
+maxCombinedUniformBlocks = GLParam 0x8A2E
+
+-- | The number of words for vertex shader uniform variables in all uniform blocks (including default). The value must be at least GL_MAX_VERTEX_UNIFORM_COMPONENTS + GL_MAX_UNIFORM_BLOCK_SIZE * GL_MAX_VERTEX_UNIFORM_BLOCKS / 4.
+maxCombinedVertexUniformComponents = GLParam 0x8A31
+
+-- XXX 20 more
+
+
+
 
 -- | The major version number of the OpenGL ES API supported by the
 -- current context. Note: ES 2 does not support this param thus returns 0.
@@ -221,7 +342,7 @@ numExtensions = GLParam 0x821D
 -- | __GL_OES_get_program_binary or ES3+__
 -- The number of available program binary formats.
 -- If the value is 0, program binary is not available.
--- The minimum value is X-0-0
+-- The minimum value is 0-0-0.
 numProgramBinaryFormats = GLParam 0x87FE
 
 
@@ -357,35 +478,10 @@ maxVertexAttribBindings = GLParam 0x82DA
 maxVertexAttribStride = GLParam 0x82E5
 
 
--- * Two-valued Parameters (since ES 2.0)
+-- ** Ext
 
-newtype GLParamP = GLParamP GLenum
-
-glPair :: GLParamP -> (Float, Float)
-glPair (GLParamP param) = unsafePerformIO $
-	with (0 :: Double) $ \ptr -> do
-		let p = castPtr ptr
-		glGetFloatv param p
-		r1 <- peek p
-		r2 <- peekByteOff p 4
-		return (r1, r2)
-
-aliasedPointSizeRange, aliasedLineWidthRange, maxViewportDims :: GLParamP
-
--- | The (smallest, largest) supported sizes for points.
--- The smallest size must be \<= 1, and the largest size must be \>= 1.
-aliasedPointSizeRange = GLParamP 0x846D
-
--- | The range of widths supported for aliased lines.
-aliasedLineWidthRange = GLParamP 0x846E
-
--- | The maximum supported width and height of the viewport.
--- These must be at least as large as the visible dimensions of the display
--- being rendered to.
-maxViewportDims = GLParamP 0x0D3A
-
--- Ext
---MAX_TEXTURE_MAX_ANISOTROPY_EXT      0x84FF
+--  | /(extname)/ (desc) Float?Int?
+--maxTextureMaxAnisotropyExt = GLParam 0x84FF
 
 
 -- * Shader Precision

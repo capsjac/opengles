@@ -7,10 +7,10 @@ import Control.Applicative
 import Control.Monad
 import Control.Concurrent.Chan
 import Control.Future
-import Data.Array.Storable (StorableArray)
 import qualified Data.ByteString as B
 import Data.IORef
 import Data.Typeable
+import qualified Data.Vector.Storable as V
 import Foreign hiding (newForeignPtr, addForeignPtrFinalizer, void)
 import Foreign.C.String (peekCString, peekCStringLen)
 import Foreign.Concurrent (newForeignPtr, addForeignPtrFinalizer)
@@ -18,6 +18,7 @@ import Graphics.OpenGLES.Base
 import Graphics.TextureContainer.KTX
 import Linear.V2
 import System.IO.Unsafe (unsafePerformIO)
+
 
 -- * Internal
 
@@ -171,8 +172,10 @@ depth_stencil = 0x84F9
 
 -- ** Buffer
 
+type GLArray a = V.Vector a
+
 -- Buffer usage id (latestArray or length)
-data Buffer a = Buffer 	(IORef (Either (StorableArray Int a) Int)) GLO
+data Buffer a = Buffer 	(IORef (Either (GLArray a) Int)) GLO
 -- DoubleBuffer GLO GLO (IORef (GLArray a))
 
 newtype BufferUsage = BufferUsage GLenum

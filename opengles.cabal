@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.6.3
+version:             0.6.5
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      The mission statement of this library is three F: Fun, Fast, yet Flexible.
@@ -55,14 +55,14 @@ library
   extra-libraries: EGL, GLESv2
   build-depends:
     base >= 4.6 && < 5,
-    array >= 0.5 && < 0.6,
     bytestring >= 0.10 && < 1,
     distributive >= 0.4 && < 0.5,
     future-resource >= 0.3,
     ghc-prim,
     linear >= 1.10 && < 1.12,
     lens >= 4.4 && < 4.5,
-    packer >= 0.1 && < 0.2
+    packer >= 0.1 && < 0.2,
+    vector >= 0.10 && < 0.11
   
   include-dirs: include
   

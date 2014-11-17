@@ -31,29 +31,38 @@ import Graphics.OpenGLES.Internal (glLog)
 
 -- * EGL Lifecycle
 
--- | 
+-- | Initialize EGL with default display.
 eglInit :: IO Egl
 eglInit = eglInitializeOn Nothing
-	[[(egl_RenderableType, egl_OpenGLES2)
-	 ,(egl_SurfaceType, egl_Window)
+	[[{-(egl_RenderableType, egl_OpenGLES2)
+	 ,-}(egl_SurfaceType, egl_Window)
 	 ,(egl_BlueSize, 8)
 	 ,(egl_GreenSize, 8)
 	 ,(egl_RedSize, 8)
 	 ,(egl_DepthSize, 24) ]
-	,[(egl_RenderableType, egl_OpenGLES2)
-	 ,(egl_SurfaceType, egl_Window)
+	,[{-(egl_RenderableType, egl_OpenGLES2)
+	 ,-}(egl_SurfaceType, egl_Window)
 	 ,(egl_BlueSize, 8)
 	 ,(egl_GreenSize, 8)
 	 ,(egl_RedSize, 8)
 	 ,(egl_DepthSize, 16) ]]
-	[(egl_ContextClientVersion, 2)]
+	[]--[(egl_ContextClientVersion, 2)]
 
--- | 
-eglInitializeOn :: Maybe EGLNativeDisplay -> [[(EGLConfAttr, Int32)]] -> [(EGLContextAttr, Int32)] -> IO Egl
+-- | Initialize EGL with specified display and configurations.
+eglInitializeOn
+	:: Maybe EGLNativeDisplay -- ^ If any, specify native display pointer.
+	-> [[(EGLConfAttr, Int32)]] -- ^ EGL configurations with many fallbacks.
+	-> [(EGLContextAttr, Int32)] -- ^ Choose GL version here.
+	-> IO Egl
 eglInitializeOn nd cfgs = newIORef . initial nd cfgs
 
--- | 
-eglResume :: Egl -> EGLNativeWindow -> IO ()
+-- | Start using graphics APIs on this thread.
+-- EGL context would be recreated if the last context was lost
+-- due to power management events.
+eglResume
+	:: Egl
+	-> EGLNativeWindow -- ^ Window handler
+	-> IO ()
 eglResume egl window = do
 	glLog "eglResume..."
 	cur@EglCurrent{..} <- readIORef egl
@@ -94,8 +103,9 @@ eglResume egl window = do
 				eglInvalidate egl
 				-- context reset
 				eglResume egl window
+{-# NOINLINE eglResume #-}
 
--- | 
+-- | Stop using graphics APIs on this thread. Should be called before a sleep.
 eglSuspend :: Egl -> IO ()
 eglSuspend egl = do
 	glLog "eglSuspend..."
@@ -103,8 +113,11 @@ eglSuspend egl = do
 	when (dsurf /= nullPtr) $ do
 		eglDestroySurface disp dsurf
 		writeIORef egl c { dsurf = nullPtr }
+{-# NOINLINE eglSuspend #-}
 
--- | 
+-- | Invalidate EGL objects and terminates the display on this thread.
+-- You can still reuse 'Egl' because 'Egl' is designed for
+-- state management.
 eglInvalidate :: Egl -> IO ()
 eglInvalidate egl = do
 	glLog "eglInvalidate..."
@@ -119,8 +132,11 @@ eglInvalidate egl = do
 			void (eglDestroySurface disp rsurf)
 		void $ eglTerminate disp
 	writeIORef egl $ initial ndisp confcand cxtconf
+{-# NOINLINE eglInvalidate #-}
 
+--  | Create a shared context from given context.
 --eglShareContext :: Egl -> IO Egl
+--eglShareContext egl = do
 
 
 -- * Posting the Color Buffer

@@ -116,11 +116,13 @@ newtype EGLConfAttr = EGLConfAttr EGLint
 newtype EGLSurfAttr = EGLSurfAttr EGLint
 newtype EGLContextAttr = EGLContextAttr EGLint
 
+{-# NOINLINE queryString #-}
 queryString :: EGLint -> Egl -> IO String
 queryString name egl = do
 	display <- fmap disp $ readIORef egl
 	eglQueryString display name >>= peekCString
 
+{-# NOINLINE queryContext #-}
 queryContext :: EGLint -> Egl -> IO EGLint
 queryContext attr egl = do
 	EglCurrent{disp=disp, context=context} <- readIORef egl
@@ -145,6 +147,7 @@ data EglCurrent = EglCurrent
 
 initial = EglCurrent nullPtr nullPtr nullPtr nullPtr nullPtr nullPtr (0,0)
 
+{-# NOINLINE showEglError #-}
 showEglError :: EGLint -> String
 showEglError x = case x of
 	0x3000 -> "EGLSuccess: Function succeeded."
@@ -166,11 +169,13 @@ showEglError x = case x of
 		"EGLUnknownError: Error " ++ show x ++ " is not defined in EGL 1.4 spec."
 	x -> "showEglError: Value out of range: " ++ show x
 
+{-# NOINLINE withAttrList #-}
 withAttrList :: [(EGLint, Int32)] -> (Ptr EGLint -> IO b) -> IO b
 withAttrList attrs =
 	withArray $ foldr (\(k, v) l -> k : v : l) [0x3038] attrs
 
--- | Get an EGLDisplay and choose suitable configs
+{-# NOINLINE setupEgl #-}
+-- | Get an EGLDisplay and choose a suitable config
 setupEgl :: Maybe EGLNativeDisplay -> [[(EGLConfAttr, Int32)]] -> IO (EGLDisplay, EGLConfig)
 setupEgl nd attribsList = do
 	display <- eglGetDisplay $ maybe nullPtr id nd
@@ -197,12 +202,14 @@ setupEgl nd attribsList = do
 	--	ANativeWindow_setBuffersGeometry window 0 0 format
 	return (display, config)
 
+{-# NOINLINE setSurface #-}
 setSurface :: EGLDisplay -> EGLConfig -> EGLNativeWindow -> IO (EGLSurface, EGLint, EGLint)
 setSurface disp config window = do
 	surf <- eglCreateWindowSurface disp config window nullPtr
-	screen_width <- alloca $ \ptr ->
-		eglQuerySurface disp surf 0x3057 ptr >> peek ptr
-	screen_height <- alloca $ \ptr ->	
-		eglQuerySurface disp surf 0x3056 ptr >> peek ptr
-	return (surf, screen_width, screen_height)
+	alloca $ \ptr -> do
+		eglQuerySurface disp surf 0x3057 ptr
+		screen_width <- peek ptr
+		eglQuerySurface disp surf 0x3056 ptr
+		screen_height <- peek ptr
+		return (surf, screen_width, screen_height)
 
