@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.6.5
+version:             0.7.0
 synopsis:            OpenGL ES 2.0 and 3.0 with EGL 1.4
 description:         A simplified OpenGL ES core wrapper library.
                      The mission statement of this library is three F: Fun, Fast, yet Flexible.
@@ -45,6 +45,7 @@ library
     Graphics.OpenGLES.Internal,
     Graphics.OpenGLES.PixelFormat,
     Graphics.OpenGLES.State,
+    Graphics.OpenGLES.Sync,
     Graphics.OpenGLES.Texture,
     Graphics.OpenGLES.Types,
     Graphics.TextureContainer.KTX,
@@ -54,15 +55,15 @@ library
   other-extensions: ForeignFunctionInterface
   extra-libraries: EGL, GLESv2
   build-depends:
-    base >= 4.6 && < 5,
+    base >= 4.7 && < 5,
     bytestring >= 0.10 && < 1,
     distributive >= 0.4 && < 0.5,
     future-resource >= 0.3,
     ghc-prim,
-    linear >= 1.10 && < 1.12,
-    lens >= 4.4 && < 4.5,
+    linear >= 1.15 && < 2,
+    lens >= 4.6 && < 4.10,
     packer >= 0.1 && < 0.2,
-    vector >= 0.10 && < 0.11
+    vector >= 0.10 && < 0.12
   
   include-dirs: include
   

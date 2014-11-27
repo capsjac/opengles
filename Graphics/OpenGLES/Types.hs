@@ -12,7 +12,6 @@
 module Graphics.OpenGLES.Types (
 
   -- * Shading Language Base Types
-  M23, M24, M32, M34, M42,
   Vec2, Vec3, Vec4,
   -- BVec2, BVec3, BVec4,
   IVec2, IVec3, IVec4,
@@ -57,11 +56,7 @@ import Graphics.OpenGLES.Internal
 import Linear
 import Unsafe.Coerce
 
-type M23 a = V2 (V3 a)
-type M24 a = V2 (V4 a)
-type M32 a = V3 (V2 a)
-type M34 a = V3 (V4 a)
-type M42 a = V4 (V2 a)
+
 type Vec2 = V2 Float
 type Vec3 = V3 Float
 type Vec4 = V4 Float
