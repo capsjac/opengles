@@ -281,13 +281,16 @@ module Graphics.OpenGLES.Base (
 	glGetInternalformativ,
 
 	-- ** Extensions
-	glDrawTexiOES,
-	glMultiDrawArraysEXT,
-	glMultiDrawElementsEXT,
 	glGenVertexArraysOES,
 	glBindVertexArrayOES,
 	glDeleteVertexArraysOES,
 	glIsVertexArrayOES,
+
+	glDrawTexiOES,
+	
+	glMultiDrawArraysEXT,
+	glMultiDrawElementsEXT,
+	glDrawRangeElementsEXT,
 
 	-- ** OpenGL ES 3.1
 	glDispatchCompute,
@@ -359,10 +362,12 @@ module Graphics.OpenGLES.Base (
 	glVertexAttribBinding,
 	glVertexBindingDivisor
 	) where
+
 import Foreign
 import Foreign.C.String
-import Graphics.EGL.Base (eglGetProcAddress)
---XXX unify Wrappers by args
+import Graphics.OpenGLES.Base.Proc (glGetProcAddress)
+
+
 -- * Basic Types
 
 -- | IO actions run in GL thread.
@@ -438,36 +443,48 @@ type GLhalf = Word16
 
 -- * Bindings
 
-{-isGLProcAvailable :: String -> Bool
-isGLProcAvailable name = let
-	proc = castFunPtrToPtr (eglGetProcAddress name)
-	undef = castFunPtrToPtr (eglGetProcAddress "glUndefined")
-	in abs (proc `minusPtr` undef) > 0x10000
-	-- eglGetProcAddress may return an useless pointer when
-	-- given name starts with "gl" but not implemented.
+{-
+-- | eglGetProcAddress may return an incremental useless pointer
+-- if given name starts with \"gl\" but not implemented.
+isGLProcAvailable :: String -> Bool
+isGLProcAvailable name =
+	abs (proc `minusPtr` undef) > 0x10000
+	where
+		proc = castFunPtrToPtr (eglGetProcAddress name)
+		undef = castFunPtrToPtr (eglGetProcAddress "glUndefined")
 -}
--- Declere must-have functions
-#define GLES2(_procname, _typ) \
-foreign import ccall unsafe "GLES2/gl2.h" _procname :: _typ; \
---{- avoid inlining to save size # INLINE _procname #-} \
 
--- Work around for a runtime link error
-#define GL_EXT(_procname, _typ) \
+-- Declere must-have functions
+#define STATIC(_procname, _typ) \
+foreign import ccall unsafe "_procname" _procname :: _typ; \
+
+-- Workaround for runtime link errors
+-- TBD unify wrappers by types
+#define DYNAMIC(_procname, _typ) \
 foreign import ccall unsafe "dynamic" unwrap_/**/_procname :: FunPtr (_typ) -> _typ; \
 _procname :: _typ; \
-_procname = unwrap_/**/_procname (eglGetProcAddress "_procname") ; \
-{-# NOINLINE _procname #-} \
+_procname = unwrap_/**/_procname (glGetProcAddress "_procname"); \
+
 -- foreign import ccall unsafe "dynamic"
 --   unwrap_glActiveTexture :: FunPtr (GLenum -> GL ()) -> GLenum -> GL ();
 -- glActiveTexture :: GLenum -> GL ();
--- glActiveTexture = unwrap_glActiveTexture (eglGetProcAddress "glActiveTexture");
+-- glActiveTexture = unwrap_glActiveTexture (glGetProcAddress "glActiveTexture");
 
+#if defined(STATIC_ES2)
+#define GLES2 STATIC
+#else
+#define GLES2 DYNAMIC
+#endif
 
--- Share unwrap_* with a mother function
-#define GL_DUP(_procname, _mother, _typ) \
-_procname :: _typ; \
-_procname = unwrap_/**/_mother (eglGetProcAddress "_procname") ; \
-{-# NOINLINE _procname #-} \
+#if defined(STATIC_ES3)
+#define GLES3 STATIC
+#else
+#define GLES3 DYNAMIC
+#endif
+
+#define GLES31 DYNAMIC
+
+#define GL_EXT DYNAMIC
 
 
 -- ** OpenGL ES 2.0
@@ -619,190 +636,195 @@ GLES2(glViewport, GLint -> GLint -> GLsizei -> GLsizei -> GL ())
 
 -- ** OpenGL ES 3.0
 
-GL_EXT(glReadBuffer, GLenum -> GL ())
-GL_EXT(glDrawRangeElements, GLenum -> GLuint -> GLuint -> GLsizei -> GLenum -> Ptr (()) -> GL ())
---GL_EXT(glTexImage3D, GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLenum -> GLenum -> Ptr () -> GL ())
-GL_EXT(glTexImage3D, GLenum -> GLint -> GLenum -> GLuint -> GLuint -> GLuint -> GLint -> GLenum -> GLenum -> CString -> GL ())
-GL_EXT(glTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLenum -> Ptr () -> GL ())
-GL_EXT(glCopyTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GL ())
---GL_EXT(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLsizei -> Ptr () -> GL ())
-GL_EXT(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLuint -> GLuint -> GLuint -> GLint -> GLsizei -> CString -> GL ())
-GL_EXT(glCompressedTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLsizei -> Ptr () -> GL ())
-GL_EXT(glGenQueries, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glDeleteQueries, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glIsQuery, GLuint -> GL GLboolean)
-GL_EXT(glBeginQuery, GLenum -> GLuint -> GL ())
-GL_EXT(glEndQuery, GLenum -> GL ())
-GL_EXT(glGetQueryiv, GLenum -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetQueryObjectuiv, GLuint -> GLenum -> Ptr GLuint -> GL ())
-GL_EXT(glUnmapBuffer, GLenum -> GL GLboolean)
-GL_EXT(glGetBufferPointerv, GLenum -> GLenum -> Ptr (Ptr ()) -> GL ())
-GL_EXT(glDrawBuffers, GLsizei -> Ptr GLenum -> GL ())
-GL_EXT(glUniformMatrix2x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glUniformMatrix3x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glUniformMatrix2x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glUniformMatrix4x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glUniformMatrix3x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glUniformMatrix4x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glBlitFramebuffer, GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLbitfield -> GLenum -> GL ())
-GL_EXT(glRenderbufferStorageMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GL ())
-GL_EXT(glFramebufferTextureLayer, GLenum -> GLenum -> GLuint -> GLint -> GLint -> GL ())
-GL_EXT(glMapBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GLbitfield -> GL (Ptr ()))
-GL_EXT(glFlushMappedBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GL ())
-GL_EXT(glBindVertexArray, GLuint -> GL ())
-GL_EXT(glDeleteVertexArrays, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glGenVertexArrays, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glIsVertexArray, GLuint -> GL GLboolean)
-GL_EXT(glGetIntegeri_v, GLenum -> GLuint -> Ptr GLint -> GL ())
-GL_EXT(glBeginTransformFeedback, GLenum -> GL ())
-GL_EXT(glEndTransformFeedback, GL ())
-GL_EXT(glBindBufferRange, GLenum -> GLuint -> GLuint -> GLintptr -> GLsizeiptr -> GL ())
-GL_EXT(glBindBufferBase, GLenum -> GLuint -> GLuint -> GL ())
-GL_EXT(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr CString -> GLenum -> GL ())
-GL_EXT(glGetTransformFeedbackVarying, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLsizei -> Ptr GLenum -> CString -> GL ())
-GL_EXT(glVertexAttribIPointer, GLuint -> GLint -> GLenum -> GLsizei -> Ptr () -> GL ())
-GL_EXT(glGetVertexAttribIiv, GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetVertexAttribIuiv, GLuint -> GLenum -> Ptr GLuint -> GL ())
-GL_EXT(glVertexAttribI4i, GLuint -> GLint -> GLint -> GLint -> GLint -> GL ())
-GL_EXT(glVertexAttribI4ui, GLuint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glVertexAttribI4iv, GLuint -> Ptr GLint -> GL ())
-GL_EXT(glVertexAttribI4uiv, GLuint -> Ptr GLuint -> GL ())
-GL_EXT(glGetUniformuiv, GLuint -> GLint -> Ptr GLuint -> GL ())
-GL_EXT(glGetFragDataLocation, GLuint -> CString-> GL GLint)
-GL_EXT(glUniform1ui, GLint -> GLuint -> GL ())
-GL_EXT(glUniform2ui, GLint -> GLuint -> GLuint -> GL ())
-GL_EXT(glUniform3ui, GLint -> GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glUniform4ui, GLint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glUniform1uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glUniform2uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glUniform3uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glUniform4uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glClearBufferiv, GLenum -> GLint -> Ptr GLint -> GL ())
-GL_EXT(glClearBufferuiv, GLenum -> GLint -> Ptr GLuint -> GL ())
-GL_EXT(glClearBufferfv, GLenum -> GLint -> Ptr GLfloat -> GL ())
-GL_EXT(glClearBufferfi, GLenum -> GLint -> GLfloat -> GLint -> GL ())
-GL_EXT(glGetStringi, GLenum -> GLuint -> GL CString)
-GL_EXT(glCopyBufferSubData, GLenum -> GLenum -> GLintptr -> GLintptr -> GLsizeiptr -> GL ())
-GL_EXT(glGetUniformIndices, GLuint -> GLsizei -> Ptr CString -> Ptr GLuint -> GL ())
-GL_EXT(glGetActiveUniformsiv, GLuint -> GLsizei -> Ptr GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetUniformBlockIndex, GLuint -> CString -> GL GLuint)
-GL_EXT(glGetActiveUniformBlockiv, GLuint -> GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetActiveUniformBlockName, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> CString -> GL ())
-GL_EXT(glUniformBlockBinding, GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glDrawArraysInstanced, GLenum -> GLint -> GLsizei -> GLsizei -> GL ())
-GL_EXT(glDrawElementsInstanced, GLenum -> GLsizei -> GLenum -> Ptr () -> GLsizei -> GL ())
-GL_EXT(glFenceSync, GLenum -> GLbitfield -> GL GLsync)
-GL_EXT(glIsSync, GLsync -> GL GLboolean)
-GL_EXT(glDeleteSync, GLsync -> GL ())
-GL_EXT(glClientWaitSync, GLsync -> GLbitfield -> GLuint64 -> GL GLenum)
-GL_EXT(glWaitSync, GLsync -> GLbitfield -> GLuint64 -> GL ())
-GL_EXT(glGetInteger64v, GLenum -> Ptr GLint64 -> GL ())
-GL_EXT(glGetSynciv, GLsync -> GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glGetInteger64i_v, GLenum -> GLuint -> Ptr GLint64 -> GL ())
-GL_EXT(glGetBufferParameteri64v, GLenum -> GLenum -> Ptr GLint64 -> GL ())
-GL_EXT(glGenSamplers, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glDeleteSamplers, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glIsSampler, GLuint -> GL GLboolean)
-GL_EXT(glBindSampler, GLuint -> GLuint -> GL ())
-GL_EXT(glSamplerParameteri, GLuint -> GLenum -> GLint -> GL ())
-GL_EXT(glSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glSamplerParameterf, GLuint -> GLenum -> GLfloat -> GL ())
-GL_EXT(glSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> GL ())
-GL_EXT(glGetSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> GL ())
-GL_EXT(glVertexAttribDivisor, GLuint -> GLuint -> GL ())
-GL_EXT(glBindTransformFeedback, GLenum -> GLuint -> GL ())
-GL_EXT(glDeleteTransformFeedbacks, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glGenTransformFeedbacks, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glIsTransformFeedback, GLuint -> GL GLboolean)
-GL_EXT(glPauseTransformFeedback, GL ())
-GL_EXT(glResumeTransformFeedback, GL ())
-GL_EXT(glGetProgramBinary, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr () -> GL ())
-GL_EXT(glProgramBinary, GLuint -> GLenum -> Ptr () -> GLsizei -> GL ())
-GL_EXT(glProgramParameteri, GLuint -> GLenum -> GLint -> GL ())
-GL_EXT(glInvalidateFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GL ())
-GL_EXT(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GL ())
-GL_EXT(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GL ())
-GL_EXT(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GL ())
-GL_EXT(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> GL ())
+GLES3(glReadBuffer, GLenum -> GL ())
+GLES3(glDrawRangeElements, GLenum -> GLuint -> GLuint -> GLsizei -> GLenum -> Ptr () -> GL ())
+--GLES3(glTexImage3D, GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLenum -> GLenum -> Ptr () -> GL ())
+GLES3(glTexImage3D, GLenum -> GLint -> GLenum -> GLuint -> GLuint -> GLuint -> GLint -> GLenum -> GLenum -> CString -> GL ())
+GLES3(glTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLenum -> Ptr () -> GL ())
+GLES3(glCopyTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GL ())
+--GLES3(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GLint -> GLsizei -> Ptr () -> GL ())
+GLES3(glCompressedTexImage3D, GLenum -> GLint -> GLenum -> GLuint -> GLuint -> GLuint -> GLint -> GLsizei -> CString -> GL ())
+GLES3(glCompressedTexSubImage3D, GLenum -> GLint -> GLint -> GLint -> GLint -> GLsizei -> GLsizei -> GLsizei -> GLenum -> GLsizei -> Ptr () -> GL ())
+GLES3(glGenQueries, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glDeleteQueries, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glIsQuery, GLuint -> GL GLboolean)
+GLES3(glBeginQuery, GLenum -> GLuint -> GL ())
+GLES3(glEndQuery, GLenum -> GL ())
+GLES3(glGetQueryiv, GLenum -> GLenum -> Ptr GLint -> GL ())
+GLES3(glGetQueryObjectuiv, GLuint -> GLenum -> Ptr GLuint -> GL ())
+GLES3(glUnmapBuffer, GLenum -> GL GLboolean)
+GLES3(glGetBufferPointerv, GLenum -> GLenum -> Ptr (Ptr ()) -> GL ())
+GLES3(glDrawBuffers, GLsizei -> Ptr GLenum -> GL ())
+GLES3(glUniformMatrix2x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glUniformMatrix3x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glUniformMatrix2x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glUniformMatrix4x2fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glUniformMatrix3x4fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glUniformMatrix4x3fv, GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES3(glBlitFramebuffer, GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLint -> GLbitfield -> GLenum -> GL ())
+GLES3(glRenderbufferStorageMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GL ())
+GLES3(glFramebufferTextureLayer, GLenum -> GLenum -> GLuint -> GLint -> GLint -> GL ())
+GLES3(glMapBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GLbitfield -> GL (Ptr ()))
+GLES3(glFlushMappedBufferRange, GLenum -> GLintptr -> GLsizeiptr -> GL ())
+GLES3(glBindVertexArray, GLuint -> GL ())
+GLES3(glDeleteVertexArrays, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glGenVertexArrays, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glIsVertexArray, GLuint -> GL GLboolean)
+GLES3(glGetIntegeri_v, GLenum -> GLuint -> Ptr GLint -> GL ())
+GLES3(glBeginTransformFeedback, GLenum -> GL ())
+GLES3(glEndTransformFeedback, GL ())
+GLES3(glBindBufferRange, GLenum -> GLuint -> GLuint -> GLintptr -> GLsizeiptr -> GL ())
+GLES3(glBindBufferBase, GLenum -> GLuint -> GLuint -> GL ())
+GLES3(glTransformFeedbackVaryings, GLuint -> GLsizei -> Ptr CString -> GLenum -> GL ())
+GLES3(glGetTransformFeedbackVarying, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLsizei -> Ptr GLenum -> CString -> GL ())
+GLES3(glVertexAttribIPointer, GLuint -> GLint -> GLenum -> GLsizei -> Ptr () -> GL ())
+GLES3(glGetVertexAttribIiv, GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES3(glGetVertexAttribIuiv, GLuint -> GLenum -> Ptr GLuint -> GL ())
+GLES3(glVertexAttribI4i, GLuint -> GLint -> GLint -> GLint -> GLint -> GL ())
+GLES3(glVertexAttribI4ui, GLuint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
+GLES3(glVertexAttribI4iv, GLuint -> Ptr GLint -> GL ())
+GLES3(glVertexAttribI4uiv, GLuint -> Ptr GLuint -> GL ())
+GLES3(glGetUniformuiv, GLuint -> GLint -> Ptr GLuint -> GL ())
+GLES3(glGetFragDataLocation, GLuint -> CString-> GL GLint)
+GLES3(glUniform1ui, GLint -> GLuint -> GL ())
+GLES3(glUniform2ui, GLint -> GLuint -> GLuint -> GL ())
+GLES3(glUniform3ui, GLint -> GLuint -> GLuint -> GLuint -> GL ())
+GLES3(glUniform4ui, GLint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
+GLES3(glUniform1uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES3(glUniform2uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES3(glUniform3uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES3(glUniform4uiv, GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES3(glClearBufferiv, GLenum -> GLint -> Ptr GLint -> GL ())
+GLES3(glClearBufferuiv, GLenum -> GLint -> Ptr GLuint -> GL ())
+GLES3(glClearBufferfv, GLenum -> GLint -> Ptr GLfloat -> GL ())
+GLES3(glClearBufferfi, GLenum -> GLint -> GLfloat -> GLint -> GL ())
+GLES3(glGetStringi, GLenum -> GLuint -> GL CString)
+GLES3(glCopyBufferSubData, GLenum -> GLenum -> GLintptr -> GLintptr -> GLsizeiptr -> GL ())
+GLES3(glGetUniformIndices, GLuint -> GLsizei -> Ptr CString -> Ptr GLuint -> GL ())
+GLES3(glGetActiveUniformsiv, GLuint -> GLsizei -> Ptr GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES3(glGetUniformBlockIndex, GLuint -> CString -> GL GLuint)
+GLES3(glGetActiveUniformBlockiv, GLuint -> GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES3(glGetActiveUniformBlockName, GLuint -> GLuint -> GLsizei -> Ptr GLsizei -> CString -> GL ())
+GLES3(glUniformBlockBinding, GLuint -> GLuint -> GLuint -> GL ())
+GLES3(glDrawArraysInstanced, GLenum -> GLint -> GLsizei -> GLsizei -> GL ())
+GLES3(glDrawElementsInstanced, GLenum -> GLsizei -> GLenum -> Ptr () -> GLsizei -> GL ())
+GLES3(glFenceSync, GLenum -> GLbitfield -> GL GLsync)
+GLES3(glIsSync, GLsync -> GL GLboolean)
+GLES3(glDeleteSync, GLsync -> GL ())
+GLES3(glClientWaitSync, GLsync -> GLbitfield -> GLuint64 -> GL GLenum)
+GLES3(glWaitSync, GLsync -> GLbitfield -> GLuint64 -> GL ())
+GLES3(glGetInteger64v, GLenum -> Ptr GLint64 -> GL ())
+GLES3(glGetSynciv, GLsync -> GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> GL ())
+GLES3(glGetInteger64i_v, GLenum -> GLuint -> Ptr GLint64 -> GL ())
+GLES3(glGetBufferParameteri64v, GLenum -> GLenum -> Ptr GLint64 -> GL ())
+GLES3(glGenSamplers, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glDeleteSamplers, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glIsSampler, GLuint -> GL GLboolean)
+GLES3(glBindSampler, GLuint -> GLuint -> GL ())
+GLES3(glSamplerParameteri, GLuint -> GLenum -> GLint -> GL ())
+GLES3(glSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES3(glSamplerParameterf, GLuint -> GLenum -> GLfloat -> GL ())
+GLES3(glSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> GL ())
+GLES3(glGetSamplerParameteriv, GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES3(glGetSamplerParameterfv, GLuint -> GLenum -> Ptr GLfloat -> GL ())
+GLES3(glVertexAttribDivisor, GLuint -> GLuint -> GL ())
+GLES3(glBindTransformFeedback, GLenum -> GLuint -> GL ())
+GLES3(glDeleteTransformFeedbacks, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glGenTransformFeedbacks, GLsizei -> Ptr GLuint -> GL ())
+GLES3(glIsTransformFeedback, GLuint -> GL GLboolean)
+GLES3(glPauseTransformFeedback, GL ())
+GLES3(glResumeTransformFeedback, GL ())
+GLES3(glGetProgramBinary, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLenum -> Ptr () -> GL ())
+GLES3(glProgramBinary, GLuint -> GLenum -> Ptr () -> GLsizei -> GL ())
+GLES3(glProgramParameteri, GLuint -> GLenum -> GLint -> GL ())
+GLES3(glInvalidateFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GL ())
+GLES3(glInvalidateSubFramebuffer, GLenum -> GLsizei -> Ptr GLenum -> GLint -> GLint -> GLsizei -> GLsizei -> GL ())
+GLES3(glTexStorage2D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GL ())
+GLES3(glTexStorage3D, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLsizei -> GL ())
+GLES3(glGetInternalformativ, GLenum -> GLenum -> GLenum -> GLsizei -> Ptr GLint -> GL ())
 
 -- ** Extensions
 
+GL_EXT(glBindVertexArrayOES, GLuint -> GL ())
+GL_EXT(glDeleteVertexArraysOES, GLsizei -> Ptr GLuint -> GL ())
+GL_EXT(glGenVertexArraysOES, GLsizei -> Ptr GLuint -> GL ())
+GL_EXT(glIsVertexArrayOES, GLuint -> GL GLboolean)
+
 GL_EXT(glDrawTexiOES, GLint -> GLint -> GLint -> GLint -> GLint -> GL ())
+
 GL_EXT(glMultiDrawArraysEXT, GLenum -> Ptr GLint -> Ptr GLsizei -> GLsizei -> GL ())
 GL_EXT(glMultiDrawElementsEXT, GLenum -> Ptr GLsizei -> GLenum -> Ptr (Ptr ()) -> GLsizei -> GL ())
-GL_DUP(glBindVertexArrayOES,glBindVertexArray, GLuint -> GL ())
-GL_DUP(glDeleteVertexArraysOES,glDeleteVertexArrays, GLsizei -> Ptr GLuint -> GL ())
-GL_DUP(glGenVertexArraysOES,glGenVertexArrays, GLsizei -> Ptr GLuint -> GL ())
-GL_DUP(glIsVertexArrayOES,glIsVertexArray, GLuint -> GL GLboolean)
+
+GL_EXT(glDrawRangeElementsEXT, GLenum -> GLuint -> GLuint -> GLsizei -> GLenum -> Ptr () -> GL ())
 
 -- ** OpenGL ES 3.1
 
-GL_EXT(glDispatchCompute, GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glDispatchComputeIndirect, GLintptr -> GL ())
-GL_EXT(glDrawArraysIndirect, GLenum -> Ptr () -> GL ())
-GL_EXT(glDrawElementsIndirect, GLenum -> GLenum -> Ptr () -> GL ())
-GL_EXT(glFramebufferParameteri, GLenum -> GLenum -> GLint -> GL ())
-GL_EXT(glGetFramebufferParameteriv, GLenum -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetProgramInterfaceiv, GLuint -> GLenum -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetProgramResourceIndex, GLuint -> GLenum -> Ptr GLchar -> GL ())
-GL_EXT(glGetProgramResourceName, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> GL ())
-GL_EXT(glGetProgramResourceiv, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glGetProgramResourceLocation, GLuint -> GLenum -> Ptr GLchar -> GL ())
-GL_EXT(glUseProgramStages, GLuint -> GLbitfield -> GLuint -> GL ())
-GL_EXT(glActiveShaderProgram, GLuint -> GLuint -> GL ())
-GL_EXT(glCreateShaderProgramv, GLenum -> GLsizei -> Ptr CString -> GL ())
-GL_EXT(glBindProgramPipeline, GLuint -> GL ())
-GL_EXT(glDeleteProgramPipelines, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glGenProgramPipelines, GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glIsProgramPipeline, GLuint -> GL ())
-GL_EXT(glGetProgramPipelineiv, GLuint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glProgramUniform1i, GLuint -> GLint -> GLint -> GL ())
-GL_EXT(glProgramUniform2i, GLuint -> GLint -> GLint -> GLint -> GL ())
-GL_EXT(glProgramUniform3i, GLuint -> GLint -> GLint -> GLint -> GLint -> GL ())
-GL_EXT(glProgramUniform4i, GLuint -> GLint -> GLint -> GLint -> GLint -> GLint -> GL ())
-GL_EXT(glProgramUniform1ui, GLuint -> GLint -> GLuint -> GL ())
-GL_EXT(glProgramUniform2ui, GLuint -> GLint -> GLuint -> GLuint -> GL ())
-GL_EXT(glProgramUniform3ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glProgramUniform4ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
-GL_EXT(glProgramUniform1f, GLuint -> GLint -> GLfloat -> GL ())
-GL_EXT(glProgramUniform2f, GLuint -> GLint -> GLfloat -> GLfloat -> GL ())
-GL_EXT(glProgramUniform3f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> GL ())
-GL_EXT(glProgramUniform4f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> GLfloat -> GL ())
-GL_EXT(glProgramUniform1iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glProgramUniform2iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glProgramUniform3iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glProgramUniform4iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
-GL_EXT(glProgramUniform1uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glProgramUniform2uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glProgramUniform3uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glProgramUniform4uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
-GL_EXT(glProgramUniform1fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniform2fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniform3fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniform4fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix2x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix3x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix2x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix4x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix3x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glProgramUniformMatrix4x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
-GL_EXT(glValidateProgramPipeline, GLuint -> GL ())
-GL_EXT(glGetProgramPipelineInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> GL ())
-GL_EXT(glBindImageTexture, GLuint -> GLuint -> GLint -> GLboolean -> GLint -> GLenum -> GLenum -> GL ())
-GL_EXT(glGetBooleani_v, GLenum -> GLuint -> Ptr GLboolean -> GL ())
-GL_EXT(glMemoryBarrier, GLbitfield -> GL ())
-GL_EXT(glMemoryBarrierByRegion, GLbitfield -> GL ())
-GL_EXT(glTexStorage2DMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLboolean -> GL ())
-GL_EXT(glGetMultisamplefv, GLenum -> GLuint -> Ptr GLfloat -> GL ())
-GL_EXT(glSampleMaski, GLuint -> GLbitfield -> GL ())
-GL_EXT(glGetTexLevelParameteriv, GLenum -> GLint -> GLenum -> Ptr GLint -> GL ())
-GL_EXT(glGetTexLevelParameterfv, GLenum -> GLint -> GLenum -> Ptr GLfloat -> GL ())
-GL_EXT(glBindVertexBuffer, GLuint -> GLuint -> GLintptr -> GLsizei -> GL ())
-GL_EXT(glVertexAttribFormat, GLuint -> GLint -> GLenum -> GLboolean -> GLuint -> GL ())
-GL_EXT(glVertexAttribIFormat, GLuint -> GLint -> GLenum -> GLuint -> GL ())
-GL_EXT(glVertexAttribBinding, GLuint -> GLuint -> GL ())
-GL_EXT(glVertexBindingDivisor, GLuint -> GLuint -> GL ())
+GLES31(glDispatchCompute, GLuint -> GLuint -> GLuint -> GL ())
+GLES31(glDispatchComputeIndirect, GLintptr -> GL ())
+GLES31(glDrawArraysIndirect, GLenum -> Ptr () -> GL ())
+GLES31(glDrawElementsIndirect, GLenum -> GLenum -> Ptr () -> GL ())
+GLES31(glFramebufferParameteri, GLenum -> GLenum -> GLint -> GL ())
+GLES31(glGetFramebufferParameteriv, GLenum -> GLenum -> Ptr GLint -> GL ())
+GLES31(glGetProgramInterfaceiv, GLuint -> GLenum -> GLenum -> Ptr GLint -> GL ())
+GLES31(glGetProgramResourceIndex, GLuint -> GLenum -> Ptr GLchar -> GL ())
+GLES31(glGetProgramResourceName, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> GL ())
+GLES31(glGetProgramResourceiv, GLuint -> GLenum -> GLuint -> GLsizei -> Ptr GLenum -> GLsizei -> Ptr GLsizei -> Ptr GLint -> GL ())
+GLES31(glGetProgramResourceLocation, GLuint -> GLenum -> Ptr GLchar -> GL ())
+GLES31(glUseProgramStages, GLuint -> GLbitfield -> GLuint -> GL ())
+GLES31(glActiveShaderProgram, GLuint -> GLuint -> GL ())
+GLES31(glCreateShaderProgramv, GLenum -> GLsizei -> Ptr CString -> GL ())
+GLES31(glBindProgramPipeline, GLuint -> GL ())
+GLES31(glDeleteProgramPipelines, GLsizei -> Ptr GLuint -> GL ())
+GLES31(glGenProgramPipelines, GLsizei -> Ptr GLuint -> GL ())
+GLES31(glIsProgramPipeline, GLuint -> GL ())
+GLES31(glGetProgramPipelineiv, GLuint -> GLenum -> Ptr GLint -> GL ())
+GLES31(glProgramUniform1i, GLuint -> GLint -> GLint -> GL ())
+GLES31(glProgramUniform2i, GLuint -> GLint -> GLint -> GLint -> GL ())
+GLES31(glProgramUniform3i, GLuint -> GLint -> GLint -> GLint -> GLint -> GL ())
+GLES31(glProgramUniform4i, GLuint -> GLint -> GLint -> GLint -> GLint -> GLint -> GL ())
+GLES31(glProgramUniform1ui, GLuint -> GLint -> GLuint -> GL ())
+GLES31(glProgramUniform2ui, GLuint -> GLint -> GLuint -> GLuint -> GL ())
+GLES31(glProgramUniform3ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> GL ())
+GLES31(glProgramUniform4ui, GLuint -> GLint -> GLuint -> GLuint -> GLuint -> GLuint -> GL ())
+GLES31(glProgramUniform1f, GLuint -> GLint -> GLfloat -> GL ())
+GLES31(glProgramUniform2f, GLuint -> GLint -> GLfloat -> GLfloat -> GL ())
+GLES31(glProgramUniform3f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> GL ())
+GLES31(glProgramUniform4f, GLuint -> GLint -> GLfloat -> GLfloat -> GLfloat -> GLfloat -> GL ())
+GLES31(glProgramUniform1iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
+GLES31(glProgramUniform2iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
+GLES31(glProgramUniform3iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
+GLES31(glProgramUniform4iv, GLuint -> GLint -> GLsizei -> Ptr GLint -> GL ())
+GLES31(glProgramUniform1uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES31(glProgramUniform2uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES31(glProgramUniform3uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES31(glProgramUniform4uiv, GLuint -> GLint -> GLsizei -> Ptr GLuint -> GL ())
+GLES31(glProgramUniform1fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniform2fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniform3fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniform4fv, GLuint -> GLint -> GLsizei -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix2x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix3x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix2x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix4x2fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix3x4fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glProgramUniformMatrix4x3fv, GLuint -> GLint -> GLsizei -> GLboolean -> Ptr GLfloat -> GL ())
+GLES31(glValidateProgramPipeline, GLuint -> GL ())
+GLES31(glGetProgramPipelineInfoLog, GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> GL ())
+GLES31(glBindImageTexture, GLuint -> GLuint -> GLint -> GLboolean -> GLint -> GLenum -> GLenum -> GL ())
+GLES31(glGetBooleani_v, GLenum -> GLuint -> Ptr GLboolean -> GL ())
+GLES31(glMemoryBarrier, GLbitfield -> GL ())
+GLES31(glMemoryBarrierByRegion, GLbitfield -> GL ())
+GLES31(glTexStorage2DMultisample, GLenum -> GLsizei -> GLenum -> GLsizei -> GLsizei -> GLboolean -> GL ())
+GLES31(glGetMultisamplefv, GLenum -> GLuint -> Ptr GLfloat -> GL ())
+GLES31(glSampleMaski, GLuint -> GLbitfield -> GL ())
+GLES31(glGetTexLevelParameteriv, GLenum -> GLint -> GLenum -> Ptr GLint -> GL ())
+GLES31(glGetTexLevelParameterfv, GLenum -> GLint -> GLenum -> Ptr GLfloat -> GL ())
+GLES31(glBindVertexBuffer, GLuint -> GLuint -> GLintptr -> GLsizei -> GL ())
+GLES31(glVertexAttribFormat, GLuint -> GLint -> GLenum -> GLboolean -> GLuint -> GL ())
+GLES31(glVertexAttribIFormat, GLuint -> GLint -> GLenum -> GLuint -> GL ())
+GLES31(glVertexAttribBinding, GLuint -> GLuint -> GL ())
+GLES31(glVertexBindingDivisor, GLuint -> GLuint -> GL ())
+
