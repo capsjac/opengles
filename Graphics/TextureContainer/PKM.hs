@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings #-}
--- | Ericsson's ETC1\/ETC2\/EAC Texture Container Format
+-- | Reading Ericsson's ETC1\/ETC2\/EAC Texture Container Format
 module Graphics.TextureContainer.PKM where
 import Control.Applicative
 import qualified Data.ByteString as B
@@ -7,6 +7,7 @@ import Data.Packer
 import Data.Word
 import Graphics.TextureContainer.KTX
 
+-- | PKM structure.
 data Pkm = Pkm
 	{ pkmName :: FilePath
 	, pkmContent :: B.ByteString
@@ -19,6 +20,7 @@ data Pkm = Pkm
 	, pkmImage :: B.ByteString
 	} deriving Show
 
+-- | 'Unpacking' instance.
 unpackPkm :: FilePath -> B.ByteString -> Unpacking Pkm
 unpackPkm name orig = do
 	-- 'PKM '
@@ -30,6 +32,7 @@ unpackPkm name orig = do
 	let size = pkmActiveW (pkm "") * pkmActiveH (pkm "") `div` 2
 	pkm <$> getBytes (fromIntegral size)
 
+-- | Turn 'Pkm' into 'Ktx'. See "Graphics.OpenGLES.Texture".
 pkmToKtx :: Pkm -> Ktx
 pkmToKtx Pkm{..} = Ktx
 	{ ktxName = pkmName
@@ -64,10 +67,13 @@ pkmToKtx Pkm{..} = Ktx
 		fromPkmType 12848 7 = undefined
 		fromPkmType 12848 8 = undefined
 
-fromPkmFile :: FilePath -> IO Pkm
-fromPkmFile path = B.readFile path >>= return . readPkm path
+-- | Build 'Pkm' from given path.
+pkmFromFile :: FilePath -> IO Pkm
+pkmFromFile path = B.readFile path >>= return . readPkm path
 
-readPkm :: FilePath -> B.ByteString -> Pkm
+-- | Build 'Pkm' from arbitrary data source.
+readPkm :: FilePath -- ^ The resource name to be shown in error message.
+	-> B.ByteString -> Pkm
 readPkm path bs = runUnpacking (unpackPkm path bs) bs
 
 {-

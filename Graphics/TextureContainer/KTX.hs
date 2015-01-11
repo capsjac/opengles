@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
--- | Khronos Texture Container Format
--- 
--- See also <http://www.khronos.org/opengles/sdk/tools/KTX/file_format_spec/>
+-- | 'Ktx' is the only format can handle all sorts of textures available
+-- among OpenGL [ES] implementations. This library holds any Texture as 'Ktx'
+-- internally.
 module Graphics.TextureContainer.KTX where
 import Control.Applicative
 import Control.Exception
@@ -10,9 +10,13 @@ import qualified Data.ByteString as B
 import Data.Packer
 import Data.Word
 
+
+-- | Khronos Texture Container Format
+-- 
+-- Spec: <http://www.khronos.org/opengles/sdk/tools/KTX/file_format_spec/>
 data Ktx = Ktx
-	{ ktxName :: FilePath -- ^ for debugging
-	, ktxContent :: B.ByteString -- ^ holding the original ForeignPtr.
+	{ ktxName :: FilePath -- ^ Debug purpose
+	, ktxContent :: B.ByteString -- ^ Holding the original ForeignPtr.
 	, ktxGlType :: Word32
 	, ktxGlTypeSize :: Word32
 	, ktxGlFormat :: Word32
@@ -24,11 +28,12 @@ data Ktx = Ktx
 	, ktxNumElems :: Word32
 	, ktxNumFaces :: Word32
 	, ktxNumMipLevels :: Word32
-	, ktxMap :: [(B.ByteString, B.ByteString)] -- ^ (utf8, any)
-	-- Note that if a value is utf8, it is NULL terminated.
+	, ktxMap :: [(B.ByteString, B.ByteString)] -- ^ \[(utf8 string, any)]
+	-- Note that if the value is utf8, it includes NULL terminator.
 	, ktxImage :: [[B.ByteString]]
-	}  deriving Show
+	} deriving Show
 
+-- | 'Unpacking' instance.
 unpackKtx :: FilePath -> B.ByteString -> Unpacking Ktx
 unpackKtx name orig = do
 	let w = getWord32
@@ -66,19 +71,26 @@ unpackKtx name orig = do
 
 	return $ ktx kvp imgs
 
+-- | Build 'Ktx' from given path.
 ktxFromFile :: FilePath -> IO Ktx
 ktxFromFile path = B.readFile path >>= return . readKtx path
 
+-- | Build 'Ktx' with arbitrary resource name and actual data.
 readKtx :: FilePath -> B.ByteString -> Ktx
 readKtx path bs = runUnpacking (unpackKtx path bs) bs
 
+-- | Same as 'readKtx' except error handling is explicit.
 tryKtx :: FilePath -> B.ByteString -> Either SomeException Ktx
 tryKtx path bs = tryUnpacking (unpackKtx path bs) bs
+
 
 {-
 type MipmapData = [Face or ArrayElements]
 type ArrayElements = B.ByteString
 type Face = B.ByteString
+
+KTX Spec
+---------
 
 Byte[12] identifier
 UInt32 endianness
@@ -119,6 +131,6 @@ for each mipmap_level in numberOfMipmapLevels*
 end
 
 * Replace with 1 if this field is 0.
-
 ** Uncompressed texture data matches a GL_UNPACK_ALIGNMENT of 4.
+
 -}

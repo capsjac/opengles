@@ -11,7 +11,9 @@ import Graphics.OpenGLES.Internal
 import Graphics.OpenGLES.Base
 import Linear
 
--- Texture Only Sized Internal Formats
+
+-- * Texture Only Sized Internal Formats
+
 data R8snorm
 data Rg8snorm
 data Rgb8snorm
@@ -34,7 +36,9 @@ data Rgb16ui
 data Rgb32i
 data Rgb32ui
 
--- Color Renderable Sized Internal Formats
+
+-- * Color Renderable Sized Internal Formats
+
 data R8
 data Rg8
 data Rgb8
@@ -64,7 +68,9 @@ data Rgba16ui
 data Rgba32i
 data Rgba32ui
 
--- Depth/Stencil Renderable Sized Internal Formats
+
+-- * Depth/Stencil Renderable Sized Internal Formats
+
 data Depth16
 data Depth24
 data Depth32f
@@ -72,18 +78,25 @@ data Depth24Stencil8
 data Depth32fStencil8
 data Stencil8 -- optional
 
--- Effective internal formats which do not correspond to GL constants
+
+-- * Effective internal formats which do not correspond to GL constants
+
 data Luminance8Alpha8
 data Luminance8
 data Alpha8
 
 
+-- * Classes
+
+-- | Actual pixel format of 'Texture' and 'Renderbuffer'.
 class InternalFormat a b | b -> a where
 	ifmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 
+-- | Source pixel format for 'Texture' and 'Renderbuffer'.
 class ExternalFormat a b where
 	efmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 
+-- | OpenGL ES 2.0 compatible formats.
 class InternalFormat a b => ES2Format a b where
 	es2fmt :: p (a, b) -> (GLenum, GLenum, GLenum)
 	es2fmt x = case ifmt x of
@@ -186,7 +199,7 @@ instance ES2Format (V2 Word8) Luminance8Alpha8 -- (LUMINANCE_ALPHA,UByte)
 instance ES2Format Word8 Luminance8 -- (LUMINANCE,UByte)
 instance ES2Format Word8 Alpha8 -- (ALPHA,UByte)
 
-
+-- | Acceptable color formats as Framebuffer attachments.
 class ColorRenderable a where
 instance ColorRenderable R8
 instance ColorRenderable Rg8
@@ -217,6 +230,7 @@ instance ColorRenderable Rgba16ui
 instance ColorRenderable Rgba32i
 instance ColorRenderable Rgba32ui
 
+-- | Acceptable depth formats as Framebuffer attachment.
 class DepthRenderable a where
 instance DepthRenderable Depth16
 instance DepthRenderable Depth24
@@ -224,6 +238,7 @@ instance DepthRenderable Depth32f
 instance DepthRenderable Depth24Stencil8
 instance DepthRenderable Depth32fStencil8
 
+-- | Acceptable stencil formats as Framebuffer attachment.
 class StencilRenderable a where
 instance StencilRenderable Depth24Stencil8
 instance StencilRenderable Depth32fStencil8

@@ -12,8 +12,9 @@
 module Graphics.OpenGLES.Types (
 
   -- * Shading Language Base Types
+  -- | GLSL types.
   Vec2, Vec3, Vec4,
-  -- BVec2, BVec3, BVec4,
+  BVec2, BVec3, BVec4,
   IVec2, IVec3, IVec4,
   UVec2, UVec3, UVec4,
   Mat2, Mat3, Mat4,
@@ -60,9 +61,9 @@ import Unsafe.Coerce
 type Vec2 = V2 Float
 type Vec3 = V3 Float
 type Vec4 = V4 Float
---type BVec2 = V2 Bool
---type BVec3 = V3 Bool
---type BVec4 = V4 Bool
+type BVec2 = V2 Bool
+type BVec3 = V3 Bool
+type BVec4 = V4 Bool
 type IVec2 = V2 Int32
 type IVec3 = V3 Int32
 type IVec4 = V4 Int32
@@ -113,6 +114,8 @@ type family Stride (list :: [*]) :: Nat where
 	Stride '[] = 0
 	Stride (x ': xs) = Aligned (SizeOf x) + Stride xs
 
+-- | Type cast between size equivalent structures like
+-- @Buffer (V2 HalfFloat) -> Buffer Int32@.
 castGL ::
 	CmpNat (Aligned (SizeOf x)) (Aligned (SizeOf y)) ~ EQ
 	=> p x -> p y
@@ -155,6 +158,13 @@ Uniform(Word32,x,1ui,x)
 Uniform(UVec2,(V2 x y),2ui,x y)
 Uniform(UVec3,(V3 x y z),3ui,x y z)
 Uniform(UVec4,(V4 x y z w),4ui,x y z w)
+toInt :: Bool -> Int32
+toInt True = 1
+toInt False = 0
+Uniform(Bool,x,1i,(toInt x))
+Uniform(BVec2,(V2 x y),2i,(toInt x) (toInt y))
+Uniform(BVec3,(V3 x y z),3i,(toInt x) (toInt y) (toInt z))
+Uniform(BVec4,(V4 x y z w),4i,(toInt x) (toInt y) (toInt z) (toInt w))
 
 {-# NOINLINE pokeUniformArray #-}
 pokeUniformArray
@@ -176,6 +186,10 @@ instance UnifVal [Word32] where glUniform = pokeUniformArray glUniform1uiv
 instance UnifVal [UVec2] where glUniform = pokeUniformArray glUniform2uiv
 instance UnifVal [UVec3] where glUniform = pokeUniformArray glUniform3uiv
 instance UnifVal [UVec4] where glUniform = pokeUniformArray glUniform4uiv
+instance UnifVal [Bool] where glUniform l = glUniform l . map toInt
+instance UnifVal [BVec2] where glUniform l = glUniform l . map (fmap toInt)
+instance UnifVal [BVec3] where glUniform l = glUniform l . map (fmap toInt)
+instance UnifVal [BVec4] where glUniform l = glUniform l . map (fmap toInt)
 
 castMat a b c d e = a b c d (castPtr e)
 
@@ -191,11 +205,10 @@ instance UnifMat Mat3x4 where glUnifMat = castMat glUniformMatrix3x4fv
 instance UnifMat Mat4x2 where glUnifMat = castMat glUniformMatrix4x2fv
 instance UnifMat Mat4x3 where glUnifMat = castMat glUniformMatrix4x3fv
 
--- | Matrix __Not tested!!!__
 instance (Distributive g, Functor f, UnifMat (f (g a)), Storable (g (f a))) =>
 		UnifVal (f (g a)) where
 		glUniform (loc, _, ptr) val = glUniform (loc, 1, ptr) [val]
--- | Array of matrix __Not tested!!!__
+
 instance (Distributive g, Functor f, UnifMat (f (g a)), Storable (g (f a))) =>
 		UnifVal [f (g a)] where
 	-- 'transpose' argument must be GL_FALSE in GL ES 2.0.
@@ -233,8 +246,6 @@ instance VertexAttribute UVec4 where
 	glVertexAttrib ix (V4 x y z w) = glVertexAttribI4ui ix x y z w
 instance VertexAttribute a => VertexAttribute (V1 a) where
 	glVertexAttrib ix (V1 x) = glVertexAttrib ix x
-
--- | Matrices __Not tested!!!__
 instance (Functor f, Floating a, Distributive g, VertexAttribute (f a),
 		FoldableWithIndex (E V4) g) => VertexAttribute (f (g a)) where
 	glVertexAttrib ix m = iforM_ (distribute m) $
@@ -255,7 +266,7 @@ instance AttrElement FixedFloat
 instance AttrElement Int2_10x3
 instance AttrElement Word2_10x3
 
--- | Temporarily gives a vector representation for type comparison
+-- | Temporarily gives a vector representation for type comparison.
 type family Vectorize a :: * where
 	Vectorize Int2_10x3 = V4 Int2_10x3
 	Vectorize Word2_10x3 = V4 Word2_10x3
@@ -265,6 +276,7 @@ type family Vectorize a :: * where
 	Vectorize a = V1 a
 	-- Float -> (1, GL_GLOAT), Vec2 -> (2, GL_FLOAT)
 
+-- | Dimentions of a vector.
 type family VDim v :: Nat where
 	VDim V1 = 1
 	VDim V2 = 2
@@ -277,7 +289,7 @@ class VertexAttributeArray attr src where
 instance VertexAttributeArray Float a where
 	glVertexAttribPtr i d t n s p = glVertexAttribPointer i d t n s (castPtr p)
 
--- | a = Int/Word32, b = Int/Word 8/16/32
+-- | a = Int or Word32, b = Int or Word 8\/16\/32.
 instance (Integral a, Integral b) => VertexAttributeArray a b where
 	glVertexAttribPtr i d t _ s p = glVertexAttribIPointer i d t s (castPtr p)
 
@@ -329,7 +341,7 @@ instance
 
 
 -- XXX 4byte alignment
--- | Transpose matrices
+-- | Matrices are transposed.
 class Storable a => GLStorable a where
 	pokeArrayGL :: Ptr a -> [a] -> GL ()
 instance (Storable (f (g a)), Storable (g (f a)), VertexAttribute (f (g Float)), Functor f, Distributive g)
@@ -338,6 +350,7 @@ instance (Storable (f (g a)), Storable (g (f a)), VertexAttribute (f (g Float)),
 instance Storable a => GLStorable a where
 	pokeArrayGL = pokeArray
 
+-- Reinvent C struct
 --class AttrStruct a where
 --	pokeAll :: Ptr () -> a -> IO ()
 

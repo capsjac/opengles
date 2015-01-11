@@ -91,11 +91,11 @@ waitFenceAtGpu (Sync _ ref) = do
 		glDeleteSync sync
 		writeIORef ref nullPtr
 
--- | Same as glFlush
+-- | Same as glFlush. This operation is expensive, so frequent use should be avoided as far as possible.
 glFlushCommandQ :: GL ()
 glFlushCommandQ = glFlush
 
--- | Same as glFinish
+-- | Same as glFinish. This operation is expensive, so frequent use should be avoided as far as possible.
 glWaitComplete :: GL ()
 glWaitComplete = glFinish
 

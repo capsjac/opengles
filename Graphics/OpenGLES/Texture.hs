@@ -52,9 +52,9 @@ import Foreign hiding (void)
 import Linear
 -- XXX Texture DoubleBufferring
 
-newtype Texture3D a = Texture3D (Texture a)
-newtype CubeMap a = CubeMap (Texture a)
-newtype Tex2DArray a = Tex2DArray (Texture a)
+--newtype Texture3D a = Texture3D (Texture a)
+--newtype CubeMap a = CubeMap (Texture a)
+--newtype Tex2DArray a = Tex2DArray (Texture a)
 
 -- Iso
 --class Tex a where
@@ -68,25 +68,35 @@ newtype Tex2DArray a = Tex2DArray (Texture a)
 --instance Tex Tex2DArray where
 --	fromTexture = Tex2DArray
 
-texSlot :: Word32 -> Texture a -> GL ()
+-- | Assign a texture to a texture slot starts from 0.
+-- To read the texture, pass the texture slot index as 'Int32' uniform variable.
+texSlot
+	:: Word32 -- ^ texture slot index
+	-> Texture a -- ^ the texture to be bound
+	-> GL ()
 texSlot slot (Texture target _ glo) = do
 	tex <- getObjId glo
 	glActiveTexture (0x84C0 + slot) -- GL_TEXTURE_0 + slot
+	showError "glActiveTexture"
 	glBindTexture target tex
+	void $ showError "glBindTexture"
 
-data TextureData =
-	  PlainTexture
-	| PVRTC -- PowerVR SGX(iOS), Samsung S5PC110(Galaxy S/Tab)
-	| ATITC -- ATI Imageon, Qualcomm Adreno
-	| S3TC -- NVIDIA Tegra2, ZiiLabs ZMS-08 HD
-	| ETC -- Android, ARM Mali
-	-- .| _3Dc -- ATI, NVidia
-	-- .| Palette
+--data TextureData =
+--	  PlainTexture -- ^ Uncompressed
+--	| PVRTC -- ^ PowerVR SGX(iOS), Samsung S5PC110(Galaxy S/Tab)
+--	| ATITC -- ^ ATI Imageon, Qualcomm Adreno
+--	| S3TC -- ^ NVIDIA Tegra2, ZiiLabs ZMS-08 HD
+--	| ETC -- ^ Android, ARM Mali
+--	| _3Dc -- ^ ATI, NVidia
+--	| Palette
 
 -- | Load a GL Texture object from Ktx texture container.
 -- See <https://github.com/KhronosGroup/KTX/blob/master/lib/loader.c>
 -- TODO: reject 2DArray/3D texture if unsupported
-glLoadKtx :: Maybe (Texture a) -> Ktx -> GL (Texture a)
+glLoadKtx
+	:: Maybe (Texture a) -- ^ overwrite the texture if specified
+	-> Ktx -- ^ the texture
+	-> GL (Texture a)
 glLoadKtx oldtex ktx@Ktx{..} = do
 	--putStrLn.show $ ktx
 	case checkKtx ktx of
@@ -150,6 +160,7 @@ glLoadKtx oldtex ktx@Ktx{..} = do
 				void $ showError $ "glGenerateMipmap " ++ ktxName
 			return tex
 
+-- | Load a KTX Texture from given path.
 glLoadKtxFile :: FilePath -> GL (Texture a)
 glLoadKtxFile path = ktxFromFile path >>= glLoadKtx Nothing
 
@@ -278,13 +289,22 @@ glLoadTex2DArray oldtex newmip fp (V3 w h d) = do
 -- * Sampler
 
 -- 2d vs. 3d / mag + min vs. max
--- | (Texture wrap mode, A number of ANISOTROPY filter sampling points
--- (specify 1.0 to disable anisotropy filter), (Fallback) Mag and Min filters).
--- 
--- When /EXT_texture_filter_anisotropic/ is not supported, fallback filters
--- are used instead.
-data Sampler =
-	Sampler (WrapMode, WrapMode, Maybe WrapMode) Float (MagFilter, MinFilter)
+-- |
+-- The default sampler is Sampler (tiledRepeat,tiledRepeat,Just tiledRepeat) 1.0
+-- (magLinear, nearestMipmapLinear).
+data Sampler = Sampler
+	{ -- | texture wrap modes per axis
+	  _wrapMode :: (WrapMode, WrapMode, Maybe WrapMode)
+	
+	-- | A number of ANISOTROPY filter sampling points.
+	-- Specify 1.0 to disable anisotropy filter.
+	-- When /EXT_texture_filter_anisotropic/ is not supported, fallback filters
+	-- are used instead.
+	, _anisotropicFilter :: Float
+	
+	-- | (Fallback) Mag and Min filters
+	, _fallbackFilter :: (MagFilter, MinFilter)
+	}
 
 newtype MagFilter = MagFilter Int32
 magNearest = MagFilter 0x2600
@@ -305,6 +325,9 @@ tiledRepeat = WrapMode 0x2901
 clampToEdge = WrapMode 0x812F
 mirroredRepeat = WrapMode 0x8370
 
+-- | Set sampler to the texture.
+-- Default sampler is (Sampler (tiledRepeat,tiledRepeat,Just tiledRepeat) 1.0
+-- (magLinear, nearestMipmapLinear)).
 setSampler :: Texture a -> Sampler -> GL ()
 setSampler (Texture target _ glo) (Sampler (WrapMode s, WrapMode t, r) a
 		(MagFilter g, MinFilter n)) = do
