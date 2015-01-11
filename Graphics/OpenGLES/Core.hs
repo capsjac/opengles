@@ -24,7 +24,6 @@ module Graphics.OpenGLES.Core (
   endFrameGL, runGL, --runGLRes
   withGL, resetDrawQueue,
   glLog, glReadLogs, glLogContents,
-  flushCommandQ, finishCommands,
   glFrameCount, glFlipping, framesize,
   
   -- * Draw Operation
@@ -38,6 +37,8 @@ module Graphics.OpenGLES.Core (
   DrawMode, drawPoints, drawLines,
   drawLineLoop, drawLineStrip,
   drawTriangles, triangleStrip, triangleFan,
+  linesAdjacency, lineStripAdjacency,
+  trianglesAdjacency, triangleStripAdjacency,
   
   -- ** Graphics State
   RenderConfig, renderTo,
@@ -65,11 +66,17 @@ module Graphics.OpenGLES.Core (
   -- | See "Graphics.OpenGLES.Texture"
   
   -- ** Vertex Picker
-  VertexPicker, takeFrom,
-  takeFromInstanced, takeFromMany,
-  VertexIx, byIndex, byIndexInstanced,
-  byIndices, byIndexLimited,
-  drawCallSequence
+  VertexPicker,
+  takeFrom,
+  takeFromInstanced,
+  takeFromMany,
+  takeFromMany',
+  VertexIx,
+  byIndex,
+  byIndexInstanced,
+  byIndices,
+  byIndices',
+  byRange
   ) where
 import Control.Applicative
 import Control.Monad
@@ -80,6 +87,7 @@ import Control.Future
 import qualified Data.ByteString as B
 import Data.IORef
 import Data.Typeable
+import qualified Data.Vector.Storable as V
 import Foreign
 import Foreign.C.String (peekCStringLen)
 import Graphics.OpenGLES.Base
@@ -158,12 +166,6 @@ glReadLogs = do
 glLogContents :: IO [String]
 glLogContents = getChanContents errorQueue
 
-flushCommandQ :: IO ()
-flushCommandQ = runGL glFlush
-
-finishCommands :: IO ()
-finishCommands = runGL glFinish
-
 -- | @return ()@
 nop :: Monad m => m ()
 nop = return ()
@@ -224,6 +226,14 @@ drawLineStrip = DrawMode 3
 drawTriangles = DrawMode 4
 triangleStrip = DrawMode 5
 triangleFan = DrawMode 6
+-- | /GL_EXT_geometry_shader/ GL_LINES_ADJACENCY_EXT
+linesAdjacency = DrawMode 10
+-- | /GL_EXT_geometry_shader/ GL_LINE_STRIP_ADJACENCY_EXT
+lineStripAdjacency = DrawMode 11
+-- | /GL_EXT_geometry_shader/ GL_TRIANGLES_ADJACENCY_EXT
+trianglesAdjacency = DrawMode 12
+-- | /GL_EXT_geometry_shader/ GL_TRIANGLE_STRIP_ADJACENCY_EXT
+triangleStripAdjacency = DrawMode 13
 
 
 -- ** Programmable Shader
@@ -345,6 +355,16 @@ glVA attrs = do
 			newGLO gen del (\i -> bind i >> setVA)
 	return $ VertexArray (glo, setVA)
 
+extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
+	GLuint -> GL (),
+	GLsizei -> Ptr GLuint -> GL ())
+extVAO
+	| hasES3 =
+		Just (glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays)
+	| hasExt "GL_OES_vertex_array_object" =
+		Just (glGenVertexArraysOES, glBindVertexArrayOES, glDeleteVertexArraysOES)
+	| otherwise = Nothing
+
 
 -- ** Constant Vertex Attribute
 
@@ -371,15 +391,27 @@ takeFromInstanced first count numInstances =
 		showError "glDrawArraysInstanced"
 
 -- Wrapping glMultiDrawArraysEXT
-takeFromMany :: [(Int32, Int32)] -> VertexPicker
-takeFromMany list =
-	VertexPicker $ \mode -> do
-		forM_ list $ \(first, count) -> do
+takeFromMany :: V.Vector Int32 -> V.Vector Int32 -> VertexPicker
+takeFromMany first_ count_ = VertexPicker $ \mode ->
+	if hasMDA then do
+		let len = fromIntegral $ min (V.length first_) (V.length count_)
+		V.unsafeWith first_ $ \first ->
+			V.unsafeWith count_ $ \count ->
+				glMultiDrawArraysEXT mode first count len
+		showError "glMultiDrawArraysEXT"
+	else do
+		V.zipWithM_ (go mode) first_ count_
+		return True
+		where go mode first count = do
 			glDrawArrays mode first count
 			showError "glDrawArrays[]"
-		--	showError "glMultiDrawElementsEXT"
-		return True
--- TakeFromManyRaw (Buffer Int32) (Buffer Word32)
+
+takeFromMany' :: [(Int32, Int32)] -> VertexPicker
+takeFromMany' xs =
+	takeFromMany (V.fromList first) (V.fromList count)
+	where (first, count) = unzip xs
+
+hasMDA = hasExt "GL_EXT_multi_draw_arrays"
 
 sizePtr :: Int32 -> Ptr ()
 sizePtr = intPtrToPtr . fromIntegral
@@ -387,8 +419,8 @@ sizePtr = intPtrToPtr . fromIntegral
 -- Wrapping glDrawElements
 byIndex :: VertexIx a => Buffer a -> Int32 -> Int32 -> VertexPicker
 byIndex buf first count =
-	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
+		let (typ, stride) = vxix buf
 		bindBuffer element_array_buffer buf
 		glDrawElements mode count typ (sizePtr $ first * stride)
 		showError "glDrawElements"
@@ -396,42 +428,55 @@ byIndex buf first count =
 -- Wrapping glDrawElementsInstanced[EXT]
 byIndexInstanced :: VertexIx a => Buffer a -> Int32 -> Int32 -> Int32 -> VertexPicker
 byIndexInstanced buf first count instances =
-	let (typ, stride) = vxix buf in
 	VertexPicker $ \mode -> do
+		let (typ, stride) = vxix buf
 		bindBuffer element_array_buffer buf
 		glDrawElementsInstanced mode count typ
 			(sizePtr $ first * stride) instances
 		showError "glDrawElementsInstanced"
 
 -- Wrapping glMultiDrawElementsEXT
-byIndices :: VertexIx a => Buffer a -> [(Int32, Int32)] -> VertexPicker
-byIndices buf list =
-	let (typ, stride) = vxix buf in
-	VertexPicker $ \mode -> do
-		bindBuffer element_array_buffer buf
-		forM_ list $ \(first, count) -> do
-			glDrawElements mode count typ (sizePtr $ first * stride)
+byIndices :: VertexIx a => Buffer a -> V.Vector Int32 -> V.Vector Int32 -> VertexPicker
+byIndices buf first_ count_ = VertexPicker $ \mode -> do
+	let (typ, stride) = vxix buf
+	let offset ix = sizePtr (stride * ix)
+	bindBuffer element_array_buffer buf
+	if hasMDA then do
+		let len = fromIntegral $ min (V.length first_) (V.length count_)
+		V.unsafeWith first_ $ \first ->
+			V.unsafeWith count_ $ \count ->
+				glMultiDrawElementsEXT mode count typ (castPtr first) len
+		showError "glMultiDrawElementsEXT"
+	else do
+		let go mode first count = do
+			glDrawElements mode count typ (offset first)
 			showError "glDrawElements[]"
+		V.zipWithM_ (go mode) first_ count_
 		return True
-		--withFirstCountArray list $ \cptr iptr clen -> do
-		--	glMultiDrawElementsEXT mode cptr typ iptr (clen * stride)
-		--	showError "glMultiDrawElementsEXT"
--- ByIndicesRaw (Buffer w) (Buffer Word32) (Buffer Word32)
+
+byIndices' :: VertexIx a => Buffer a -> [(Int32, Int32)] -> VertexPicker
+byIndices' buf xs = do
+	byIndices buf (V.fromList first) (V.fromList count)
+	where (first, count) = unzip xs
+
+extDRE =
+	if hasES3 then
+		Just glDrawRangeElements
+	else if hasExt "GL_EXT_draw_range_elements" then
+		Just glDrawRangeElementsEXT
+	else Nothing
 
 -- Wrapping glDrawRangeElements[EXT]
-byIndexLimited :: VertexIx a => Buffer a -> Int32 -> Int32 -> Word32 -> Word32 -> VertexPicker
-byIndexLimited buf first count min max =
-	let (typ, stride) = vxix buf in
-	VertexPicker $ \mode -> do
-		bindBuffer element_array_buffer buf
-		glDrawElements mode count typ (sizePtr $ first * stride)
-		showError "glDrawElements'"
-		--showError "glDrawRangeElements[EXT]"
--- FromToIndexRaw !BufferRef !Int !Int !GLsizei !GLenum !Int
-
-drawCallSequence :: [VertexPicker] -> VertexPicker
-drawCallSequence xs =
-	VertexPicker $ \mode ->
-		mapM_ (\(VertexPicker f) -> f mode) xs >> return True
-
+byRange :: VertexIx a => Buffer a -> Int32 -> Int32 -> Word32 -> Word32 -> VertexPicker
+byRange buf first count start end_ = VertexPicker $ \mode -> do
+	let (typ, stride) = vxix buf
+	let offset = sizePtr (first * stride)
+	bindBuffer element_array_buffer buf
+	case extDRE of
+		Just glDRE -> do
+			glDRE mode start end_ count typ offset
+			showError "glDrawRangeElements[EXT]"
+		Nothing -> do
+			glDrawElements mode count typ offset
+			showError "glDrawElements'"
 
