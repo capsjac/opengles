@@ -24,6 +24,7 @@ module Graphics.OpenGLES (
   module Graphics.OpenGLES.Types,
   module Linear
   ) where
+
 import Control.Future
 import Data.Int
 import Data.Word
@@ -37,3 +38,4 @@ import Graphics.OpenGLES.Sync
 import Graphics.OpenGLES.Texture
 import Graphics.OpenGLES.Types
 import Linear
+
