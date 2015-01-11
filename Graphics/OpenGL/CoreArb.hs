@@ -4,8 +4,8 @@
 module Graphics.OpenGL.CoreArb where
 import Foreign
 import Foreign.C.String
-import Graphics.EGL.Base (eglGetProcAddress)
 import Graphics.OpenGLES.Base
+import Graphics.OpenGLES.Base.Proc (glGetProcAddress)
 
 -- * Basic Types
 
@@ -27,13 +27,13 @@ foreign import ccall unsafe "wrapper"
 #define GLAPI(_procname, _typ) \
 foreign import ccall unsafe "dynamic" unwrap_/**/_procname :: FunPtr (_typ) -> _typ; \
 _procname :: _typ; \
-_procname = unwrap_/**/_procname (eglGetProcAddress "_procname"); \
+_procname = unwrap_/**/_procname (glGetProcAddress "_procname"); \
 {-# NOINLINE _procname #-} \
 
 -- foreign import ccall unsafe "dynamic"
 --   unwrap_glActiveTexture :: FunPtr (GLenum -> GL ()) -> GLenum -> GL ();
 -- glActiveTexture :: GLenum -> GL ();
--- glActiveTexture = unwrap_glActiveTexture (eglGetProcAddress "glActiveTexture");
+-- glActiveTexture = unwrap_glActiveTexture (glGetProcAddress "glActiveTexture");
 
 -- #ifndef __glcorearb_h_
 -- #define __glcorearb_h_ 1
