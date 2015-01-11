@@ -41,6 +41,8 @@ import Linear.V4
 
 
 -- |
+-- Clear the bound 'Framebuffer'.
+-- 
 -- > clear [] colorBuffer
 -- > clear [bindFb framebuffer] (colorBuffer+depthBuffer)
 clear
@@ -49,12 +51,15 @@ clear
 	-> GL ()
 clear gs (BufferMask flags) = sequence gs >> glClear flags
 
+-- | Specify clear color (r,g,b,a)
 clearColor :: Float -> Float -> Float -> Float -> GL ()
 clearColor = glClearColor
 
+-- | Specify clear depth
 clearDepth :: Float -> GL ()
 clearDepth = glClearDepthf
 
+-- | Specify clear stencil
 clearStencil :: Int32 -> GL ()
 clearStencil = glClearStencil
 
@@ -63,16 +68,20 @@ depthBuffer = BufferMask 0x100
 stencilBuffer = BufferMask 0x400
 colorBuffer = BufferMask 0x4000
 
-colorMask :: V4 Bool -> GL ()
-colorMask (V4 r g b a) = glColorMask (f r) (f g) (f b) (f a)
+-- | Color mask (r,g,b,a)
+colorMask :: Bool -> Bool -> Bool -> Bool -> GL ()
+colorMask r g b a = glColorMask (f r) (f g) (f b) (f a)
 	where f c = if c then 1 else 0
 
+-- | Depth mask
 depthMask :: Bool -> GL ()
 depthMask = glDepthMask . (\d -> if d then 1 else 0)
 
+-- | Stencil mask
 stencilMask :: Word32 -> GL ()
 stencilMask = glStencilMask
 
+-- | Stencil mask by face
 stencilMaskSep :: CullFace -> Word32 -> GL ()
 stencilMaskSep (Culling face) = glStencilMaskSeparate face
 
@@ -88,12 +97,21 @@ stencilMaskSep (Culling face) = glStencilMaskSeparate face
 
 -- |
 -- New Renderbuffer with specified sample count and dimentions.
-glRenderbuffer :: forall a b. InternalFormat a b => Int32 -> GL (V2 Int32) -> GL (Renderbuffer b)
+glRenderbuffer
+	:: forall a b. InternalFormat a b
+	=> Int32 -- ^ sample count (0 to disable multisampling)
+	-> GL (V2 Int32) -- ^ renderbuffer dimentions getter
+	-> GL (Renderbuffer b)
 glRenderbuffer sample askSize = do
 	let (_, _, internalformat) = ifmt ([] :: [(a,b)])
 	unsafeRenderbuffer sample askSize internalformat
 
-unsafeRenderbuffer :: Int32 -> GL (V2 Int32) -> GLenum -> GL (Renderbuffer a)
+-- | glRenderbuffer with explicit internal format.
+unsafeRenderbuffer
+	:: Int32 -- ^ sample count (0 to disable multisampling)
+	-> GL (V2 Int32) -- ^ renderbuffer dimentions getter
+	-> GLenum -- ^ internal format enum
+	-> GL (Renderbuffer a)
 unsafeRenderbuffer samples askSize internalformat = do
 	let sample = if hasES3 then samples else 0
 	dim <- newIORef undefined
@@ -135,7 +153,10 @@ instance Attachable Texture a where
 				glFramebufferTextureLayer textgt attachment tex level layer
 			_ -> error "glAttachToFramebuffer: Invalid Texture target"
 
+-- | Color renderable wrapper.
 data CR = forall a c. (Attachable a c, ColorRenderable c) => CR (a c)
+
+-- | Depth and Stencil renderable wrapper.
 newtype DepthStencil = DepthStencil (IORef (V2 Int32) -> GL ())
 
 colorOnly :: DepthStencil
@@ -148,9 +169,12 @@ stencilImage :: (Attachable a s, StencilRenderable s) => a s -> DepthStencil
 stencilImage = DepthStencil . glAttachToFramebuffer 0x8D20
 
 depthStencil :: (Attachable a r, DepthRenderable r, StencilRenderable r) => a r -> DepthStencil
-depthStencil = DepthStencil . glAttachToFramebuffer 0x821A
+--depthStencil = DepthStencil . glAttachToFramebuffer 0x821A
+depthStencil a = DepthStencil $ do
+	glAttachToFramebuffer 0x8D00 a -- depth
+	glAttachToFramebuffer 0x8D20 a -- stencil
 
--- | New 'Framebuffer' from specified 'ColorRenderable' and 'DepthStencil'
+-- | New 'Framebuffer' from specified 'ColorRenderable's and 'DepthStencil'
 glFramebuffer :: [CR] -> DepthStencil -> GL Framebuffer
 glFramebuffer colours (DepthStencil runds) = do
 	maxDims <- newIORef (V2 0 0)
@@ -163,6 +187,7 @@ glFramebuffer colours (DepthStencil runds) = do
 	where go maxDims attachment (CR cr) =
 		glAttachToFramebuffer attachment cr maxDims
 
+-- | Bind the 'Framebuffer'.
 bindFb :: Framebuffer -> GL ()
 bindFb (Framebuffer _ glo) =
 	getObjId glo >>= glBindFramebuffer 0x8D40
@@ -178,15 +203,16 @@ withFb fb io = do
 	return result
 
 -- XXX maybe slow (untested)
-getViewport :: GL (V4 Int32)
+getViewport :: GL (V4 Int32) -- ^ V4 x y w h
 getViewport = allocaArray 4 $ \p -> do
 	glGetIntegerv 0x0BA2 p -- GL_VIEWPORT
 	[x,y,w,h] <- peekArray 4 p
 	return $ V4 x y w h
 
--- |
--- Cliping current framebuffer. Note that origin is left-bottom.
-viewport :: V4 Int32 -> GL ()
+-- | Cliping current framebuffer. Note that origin is left-bottom.
+viewport
+	:: V4 Int32 -- ^ V4 x y w h
+	-> GL ()
 viewport (V4 x y w h) = glViewport x y w h
 
 withViewport :: V4 Int32 -> GL a -> GL a
@@ -198,7 +224,8 @@ withViewport vp io = do
 	return result
 
 -- XXX maybe slow (untested)
-getDepthRange :: GL (V2 Float)
+-- | Set depth range (near, far)
+getDepthRange :: GL (V2 Float) -- ^ (near, far)
 getDepthRange = allocaArray 2 $ \p -> do
 	glGetFloatv 0x0B70 p -- GL_DEPTH_RANGE
 	[n,f] <- peekArray 2 p

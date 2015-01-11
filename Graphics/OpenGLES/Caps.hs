@@ -1,6 +1,8 @@
--- | Retriving implementation limits.
--- Do NOT call below APIs out of OpenGL threads.
--- (glGetString may return null pointer!)
+-- | Query implementation capabilities.
+-- 
+-- __Do NOT call below APIs out of OpenGLES threads.__
+-- 
+-- (May cause Segmentation Fault, or you get unuseful 0)
 module Graphics.OpenGLES.Caps where
 import Foreign
 import Foreign.C.String
@@ -9,36 +11,25 @@ import Graphics.OpenGLES.Internal (Shader(..))
 import System.IO.Unsafe (unsafePerformIO)
 
 
--- * Extension detection
+-- * Detecting Extensions
 
 {-# NOINLINE glExtensions #-}
--- | The list of available extensions on this GL implementation.
+-- | The list of available extensions on the GL implementation.
 glExtensions :: [String]
 glExtensions = unsafePerformIO $
 	glGetString 0x1F03 >>= peekCString >>= return.words
 
 {-# NOINLINE hasExt #-}
--- | True if this GL has the extension.
+-- | True if the GL has the extension.
 hasExt :: String -> Bool
 hasExt ext = ext `elem` glExtensions
 --hasExt :: CString -> Bool
 --glGetString 0x1F03 >>= indexOf ext /= -1
 
 {-# NOINLINE hasES3 #-}
--- | True if this GL version is 3 or later. 
+-- | True if the GL version is 3 or later. 
 hasES3 :: Bool
 hasES3 = glCap majorVersion > 2
-
--- | Internally used.
-extVAO :: Maybe (GLsizei -> Ptr GLuint -> GL (),
-	GLuint -> GL (),
-	GLsizei -> Ptr GLuint -> GL ())
-extVAO
-	| hasES3 =
-		Just (glGenVertexArrays, glBindVertexArray, glDeleteVertexArrays)
-	| hasExt "GL_OES_vertex_array_object" =
-		Just (glGenVertexArraysOES, glBindVertexArrayOES, glDeleteVertexArraysOES)
-	| otherwise = Nothing
 
 
 -- * String Parameters
@@ -478,15 +469,17 @@ maxVertexAttribBindings = GLParam 0x82DA
 maxVertexAttribStride = GLParam 0x82E5
 
 
--- ** Ext
+-- ** Extensions
 
 --  | /(extname)/ (desc) Float?Int?
---maxTextureMaxAnisotropyExt = GLParam 0x84FF
+maxTextureMaxAnisotropy = GLParam 0x84FF
 
 
 -- * Shader Precision
 
--- | > shaderPrecision vertexShader highFp == (min, max, precision)
+-- | Query shader precision information
+-- 
+-- > (min, max, precision) <- shaderPrecision vertexShader highFp
 shaderPrecision :: (GLName -> a -> Shader) -> PrecisionType -> GL (Int32, Int32, Int32)
 shaderPrecision shader (Prec precTyp) = 
 	allocaArray 3 $ \range -> do

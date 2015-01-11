@@ -12,7 +12,7 @@ module Graphics.OpenGLES.Buffer (
   Buffer,
   GLArray,
   GLSource(..),
-  glLoad, glReload, glUnsafeRead, glModify, glMap,
+  glLoad, glReload, glRead, glModify, glMap,
 
   -- ** Updating Mutable Buffers
   unsafeWithLen,
@@ -150,7 +150,12 @@ newVector elems unit = do
 	let B.PS fp _ _ = B.replicate (elems * unit) 0
 	return $ V.unsafeFromForeignPtr0 (castForeignPtr fp) elems
 
-glReload :: forall a b. GLSource a b => Buffer b -> Int -> a -> GL ()
+glReload
+	:: forall a b. GLSource a b
+	=> Buffer b
+	-> Int -- ^ offset index
+	-> a -- ^ values
+	-> GL ()
 glReload buf@(Buffer aref glo) offsetIx src = do
 	bindBuffer array_buffer buf
 	aref' <- readIORef aref
@@ -177,14 +182,19 @@ glReload buf@(Buffer aref glo) offsetIx src = do
 			showError "glBufferSubData"
 		writeIORef aref (Left vector)
 
-
-glUnsafeRead :: forall a. Storable a => Buffer a -> (Int, Int) -> GL (GLArray a)
-glUnsafeRead buf@(Buffer aref glo) (offsetIx, len) = do
+-- | 
+glRead
+	:: forall a. Storable a
+	=> Buffer a
+	-> Int -- ^ offset index
+	-> Int -- ^ length
+	-> GL (GLArray a)
+glRead buf@(Buffer aref glo) offsetIx len = do
 	bindBuffer array_buffer buf
 	array <- readIORef aref
 	case array of
-		Left vector -> -- unsafe!
-			return vector
+		Left vector ->
+			return vector -- XXX Make it partial
 		Right elems -> do
 			vec <- newVector (min len (elems - offsetIx)) unit
 			if hasES3 then do
@@ -198,7 +208,13 @@ glUnsafeRead buf@(Buffer aref glo) (offsetIx, len) = do
 			else return vec
 	where unit = sizeOf (undefined :: a)
 
-glModify :: forall a. Storable a => Buffer a -> Int -> Int -> (GLArray a -> GL ()) -> GL ()
+glModify
+	:: forall a. Storable a
+	=> Buffer a
+	-> Int -- ^ offset index
+	-> Int -- ^ length
+	-> (V.Vector a -> GL ()) -- ^ XXX
+	-> GL ()
 glModify buf@(Buffer aref glo) offsetIx len f = do
 	bindBuffer array_buffer buf
 	if hasES3 then do
@@ -224,7 +240,13 @@ glModify buf@(Buffer aref glo) offsetIx len f = do
 				unsafeWithLen vec (bufferSubData array_buffer 0)
 	where unit = sizeOf (undefined :: a)
 
-glMap :: Storable a => (a -> GL a) -> Buffer a -> Int -> Int -> GL ()
+glMap
+	:: Storable a
+	=> (a -> GL a)
+	-> Buffer a
+	-> Int -- ^ offset index
+	-> Int -- ^ length
+	-> GL ()
 glMap f buffer off len = glModify buffer off len (V.mapM_ f)
 
 
