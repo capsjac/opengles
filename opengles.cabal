@@ -22,6 +22,12 @@ extra-source-files:
   examples/glsl-sandbox-player.hs
   examples/windmill.hs
   examples/windows.hs
+extra-doc-files: ANGLE/LICENSE
+data-files:
+  ANGLE/Win32/libGLESv2.dll
+  ANGLE/Win32/libEGL.dll
+  ANGLE/Win64/libGLESv2.dll
+  ANGLE/Win64/libEGL.dll
 stability: experimental
 cabal-version:       >= 1.18
 
