@@ -1,11 +1,13 @@
 -- | Draw configurations on Rasterization and Per-Fragment Operations.
 -- Note: Graphic state is sticky.
+
 module Graphics.OpenGLES.State (
   -- * Graphics State
   lineWidth, polygonOffset, scissor,
   sampleCoverage,
+
   -- ** Capability
-  begin, end,
+  begin, end, enable, disable, resetcfg,
   Capability,
   culling,
   blend,
@@ -18,18 +20,22 @@ module Graphics.OpenGLES.State (
   multisampleCoverage,
   primitiveRestartFixedIndex,
   rasterizerDiscard,
+  
   -- ** Cull Face
   cullFace, frontFace,
   CullFace, hideFront, hideBack, hidePolygons,
+  
   -- ** Stencil
   stencilFunc, stencilFuncSeparate,
   stencilOp, stencilOpSeparate,
   StencilOp, opZero, opKeep, opReplace, opIncr,
   opDecr, opInvert, opIncrWrap, opDecrWrap,
+  
   -- ** Depth
   depthFunc,
   CompFunc, glNever, glLess, glEqual, glLessEq,
   glGreater, glNotEq, glGreatEq, glAlways,
+  
   -- ** Blend
   blendEquation, blendEquationSeparate,
   blendFunc, blendFuncSeparate,
@@ -39,24 +45,49 @@ module Graphics.OpenGLES.State (
   srcAlpha, oneMinusSrcAlpha, dstAlpha, oneMinusDstAlpha,
   dstColor, oneMinusDstColor, srcAlphaSaturate,
   constColor, oneMinusConstColor, constAlpha, oneMinusConstAlpha,
+  
   -- ** Hint
   generateMipmapHint, fragmentShaderDerivativeHint,
   Hint, dontCare, nicest, fastest
+  
   ) where
+
+
 import Data.Int
 import Data.Word
 import Graphics.OpenGLES.Base
 import Graphics.OpenGLES.Internal
 
+
 -- | Float value clamped to [0,1]
 type Clampf = Float
 
+-- | Same as 'enable'.
 begin :: Capability -> GL ()
 begin (Capability cap) = glEnable cap
 
+-- | Same as 'disable'.
 end :: Capability -> GL ()
 end (Capability cap) = glDisable cap
 
+-- | Enable specified feature.
+enable :: Capability -> GL ()
+enable = begin
+
+-- | Disable specified feature.
+disable :: Capability -> GL ()
+disable = end
+
+-- | Reset capability states
+resetcfg :: GL ()
+resetcfg = do
+    enable dither
+    mapM_ disable
+        [ culling, blend, stencilTest, depthTest, scissorTest
+        , polygonOffsetFill, sampleAlphaToCoverage, multisampleCoverage
+        , primitiveRestartFixedIndex, rasterizerDiscard]
+    frontFace False
+    cullFace hideBack
 
 -- *** Capability
 
@@ -75,12 +106,13 @@ rasterizerDiscard = Capability 0x8C89
 lineWidth :: Float -> GL ()
 lineWidth = glLineWidth
 
--- | CW -> True, CCW -> False
+-- | Clockwise -> True, Counter-clockwise -> False
 frontFace :: Bool -> GL ()
 frontFace cw = glFrontFace (if cw then 0x900 else 0x901)
 
 cullFace :: CullFace -> GL ()
 cullFace (Culling x) = glCullFace x
+
 
 -- *** CullFace
 
@@ -89,8 +121,8 @@ hideBack = Culling 0x0405
 hidePolygons = Culling 0x408
 
 polygonOffset
-	:: Float -- ^ factor
-	-> Float -- ^ units
+	:: Float -- ^ factor: A variable depth offset for each polygon (default 0)
+	-> Float -- ^ units: Multiplied by an implementation-specific value to create a constant depth offset. (default 0)
 	-> GL ()
 polygonOffset factor units = glPolygonOffset factor units
 
@@ -109,25 +141,44 @@ sampleCoverage
 sampleCoverage value invert =
 	glSampleCoverage value (if invert then 1 else 0)
 
-stencilFunc :: CompFunc -> Int32 -> Word32 -> GL ()
+stencilFunc
+    :: CompFunc -- ^ stencil function
+    -> Int32 -- ^ comparing value
+    -> Word32 -- ^ mask value
+    -> GL ()
 stencilFunc (CompFunc func) comp mask =
 	glStencilFunc func comp mask
 
-stencilFuncSeparate :: CullFace -> CompFunc -> Int32 -> Word32 -> GL ()
+stencilFuncSeparate
+    :: CullFace -- ^ which face
+    -> CompFunc -- ^ stencil function
+    -> Int32 -- ^ comparing value
+    -> Word32 -- ^ mask value
+    -> GL ()
 stencilFuncSeparate (Culling cull) (CompFunc func) comp mask =
 	glStencilFuncSeparate cull func comp mask
 
-stencilOp :: StencilOp -> StencilOp -> StencilOp -> GL ()
+stencilOp
+    :: StencilOp -- ^ stencil fail
+    -> StencilOp -- ^ depth fail
+    -> StencilOp -- ^ depth pass
+    -> GL ()
 stencilOp (StencilOp sfail) (StencilOp dpfail) (StencilOp dppass) =
 	glStencilOp sfail dpfail dppass
 
-stencilOpSeparate :: CullFace -> StencilOp -> StencilOp -> StencilOp -> GL ()
+stencilOpSeparate
+    :: CullFace -- ^ which face
+    -> StencilOp -- ^ stencil fail
+    -> StencilOp -- ^ depth fail
+    -> StencilOp -- ^ depth pass
+    -> GL ()
 stencilOpSeparate (Culling cull) (StencilOp sfail)
 		(StencilOp dpfail) (StencilOp dppass) =
 	glStencilOpSeparate cull sfail dpfail dppass
 
 depthFunc :: CompFunc -> GL ()
 depthFunc (CompFunc func) = glDepthFunc func
+
 
 -- *** CompFunc
 
@@ -139,6 +190,7 @@ glGreater  = CompFunc 0x0204
 glNotEq    = CompFunc 0x0205
 glGreatEq  = CompFunc 0x0206
 glAlways   = CompFunc 0x0207
+
 
 -- *** StencilOp
 
@@ -154,24 +206,48 @@ opDecrWrap = StencilOp 0x8508
 blendEquation :: BlendOp -> GL ()
 blendEquation (BlendOp mode) = glBlendEquation mode
 
-blendEquationSeparate :: BlendOp -> BlendOp -> GL ()
+blendEquationSeparate
+    :: BlendOp -- ^ rgb
+    -> BlendOp -- ^ alpha
+    -> GL ()
 blendEquationSeparate (BlendOp rgb) (BlendOp a) =
 	glBlendEquationSeparate rgb a
 
+
 -- *** BlendOp
 
+-- | 
 addBlending        = BlendOp 0x8006
+
+-- | 
 subBlending        = BlendOp 0x800A
+
+-- | 
 reverseSubBlending = BlendOp 0x800B
 
-blendFunc :: BlendingFactor -> BlendingFactor -> GL ()
+-- | /ES3+/
+minBlending        = BlendOp 0x8007
+
+-- | /ES3+/
+maxBlending        = BlendOp 0x8008
+
+blendFunc
+    :: BlendingFactor -- ^ source
+    -> BlendingFactor -- ^ dest
+    -> GL ()
 blendFunc (BlendingFactor src) (BlendingFactor dest) =
 	glBlendFunc src dest
 
-blendFuncSeparate :: BlendingFactor -> BlendingFactor -> BlendingFactor -> BlendingFactor -> GL ()
+blendFuncSeparate
+  :: BlendingFactor -- ^ source rgb
+  -> BlendingFactor -- ^ dest rgb
+  -> BlendingFactor -- ^ source alpha
+  -> BlendingFactor -- ^ dest alpha
+  -> GL ()
 blendFuncSeparate (BlendingFactor srgb) (BlendingFactor drgb)
 		(BlendingFactor salpha) (BlendingFactor dalpha) =
 	glBlendFuncSeparate srgb drgb salpha dalpha
+
 
 -- *** BlendingFactor
 
@@ -199,6 +275,7 @@ generateMipmapHint (Hint hint) = glHint 0x8192 hint
 
 fragmentShaderDerivativeHint :: Hint -> GL ()
 fragmentShaderDerivativeHint (Hint hint) = glHint 0x8B8B hint
+
 
 -- *** Hint
 
