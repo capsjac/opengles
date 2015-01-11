@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Graphics.OpenGLES.Internal where
 import Control.Applicative
 import Control.Monad
@@ -9,6 +10,7 @@ import Control.Concurrent.Chan
 import Control.Future
 import qualified Data.ByteString as B
 import Data.IORef
+import Data.Monoid
 import Data.Typeable
 import qualified Data.Vector.Storable as V
 import Foreign hiding (newForeignPtr, addForeignPtrFinalizer, void)
@@ -16,7 +18,7 @@ import Foreign.C.String (peekCString, peekCStringLen)
 import Foreign.Concurrent (newForeignPtr, addForeignPtrFinalizer)
 import Graphics.OpenGLES.Base
 import Graphics.TextureContainer.KTX
-import Linear.V2
+import Linear
 import System.IO.Unsafe (unsafePerformIO)
 
 
@@ -472,6 +474,12 @@ newtype VertexArray p = VertexArray (GLO, GL ())
 
 newtype VertexPicker = VertexPicker (GLenum -> GL Bool)
 
+instance Monoid VertexPicker where
+	mempty = VertexPicker (const $ return True)
+	mappend (VertexPicker f) (VertexPicker g) =
+		VertexPicker $ \mode ->
+			f mode >> g mode
+
 class VertexIx a where
 	vxix :: m a -> (GLenum, GLint)
 instance VertexIx Word8 where
@@ -480,6 +488,8 @@ instance VertexIx Word16 where
 	vxix _ = (0x1403, 2)
 instance VertexIx Word32 where
 	vxix _ = (0x1405, 4)
+instance forall v a. VertexIx a => VertexIx (v a) where
+	vxix _ = vxix (undefined :: v a)
 
 
 -- ** Draw Operation
