@@ -21,6 +21,7 @@ extra-source-files:
   examples/billboard2.hs
   examples/glsl-sandbox-player.hs
   examples/windmill.hs
+  examples/windows.hs
 stability: experimental
 cabal-version:       >= 1.18
 
