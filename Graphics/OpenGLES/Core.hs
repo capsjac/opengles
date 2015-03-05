@@ -132,7 +132,7 @@ stopGL = do
 --destroyGL = runGL $ eglMakeCurrent Nothing, eglDestroyXXX ...
 
 endFrameGL :: IO ()
-endFrameGL = withGL go >>= waitFuture >> nop
+endFrameGL = withGL go >>= waitFor >> nop
 	where go = do
 		readIORef drawOrExit >>= \case
 			Just eglSwapBuffer -> do
@@ -147,7 +147,7 @@ runGL io = writeChan drawQueue io
 --runGLRes io = forkOS
 
 withGL :: GL a -> IO (Future' a)
-withGL io = asyncIO $ \update -> runGL (io >>= update . Finished)
+withGL io = mkFuture $ \update -> runGL (io >>= update . Finished)
 
 -- | drawQueue may have drawcalls that use previous context,
 -- so make it sure they are removed from the queue.

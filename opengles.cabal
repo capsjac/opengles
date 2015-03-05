@@ -22,7 +22,9 @@ extra-source-files:
   examples/glsl-sandbox-player.hs
   examples/windmill.hs
   examples/windows.hs
-extra-doc-files: ANGLE/LICENSE
+extra-doc-files:
+  ANGLE/LICENSE
+  ANGLE/AboutANGLE.md
 data-files:
   ANGLE/Win32/libGLESv2.dll
   ANGLE/Win32/libEGL.dll
@@ -87,7 +89,7 @@ library
     , bytestring >= 0.10 && < 1
     , distributive >= 0.4 && < 0.5
     , fixed >= 0.2.1 && < 0.3
-    , future-resource >= 0.3
+    , future-resource >= 0.4
     , half >= 0.2 && < 0.3
     , ghc-prim
     , linear >= 1.15 && < 2
