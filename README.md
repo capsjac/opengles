@@ -20,5 +20,5 @@ Cons:
 
 Documentation is still poor but I'm willing to write a tutorial someday.
 
-Contribution is welcome.
+Contribution is always welcome.
 
