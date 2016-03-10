@@ -175,7 +175,7 @@ nop = return ()
 glFrameCount :: MonadIO m => m Int64
 glFrameCount = liftIO $ readIORef frameCounter
 
-glFlipping :: m Bool
+glFlipping :: MonadIO m => m Bool
 glFlipping = fmap odd glFrameCount
 
 -- XXX bindFb defaultFramebuffer needed

@@ -124,6 +124,7 @@ executable windmill
     buildable: False
   build-depends:       base
                      , opengles
+                     , lens, linear, random, GLFW-b, time, bytestring, distributive, ghc-prim, packer, vector, future-resource
   default-language:    Haskell2010
 
 test-suite opengles-test

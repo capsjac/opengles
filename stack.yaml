@@ -6,8 +6,8 @@ resolver: lts-5.6
 
 # Local packages, usually specified by relative directory name
 packages:
-- '../../hs-packer'
-- '../../future-resource'
+- '../hs-packer'
+- '../future-resource'
 - '.'
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []
