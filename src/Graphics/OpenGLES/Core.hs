@@ -17,6 +17,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Graphics.OpenGLES.Core (
   GL,
   -- * Lifecycle
@@ -80,6 +81,7 @@ module Graphics.OpenGLES.Core (
   ) where
 import Control.Applicative
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Concurrent (forkOS, ThreadId, myThreadId, killThread)
 import Control.Concurrent.Chan
 import Control.Exception (catch, SomeException)
@@ -98,12 +100,12 @@ import Graphics.OpenGLES.Internal
 
 -- * Initialization
 
-forkGL
-	:: IO Bool
+forkGL :: MonadIO m
+	=> IO Bool
 	-> GL ()
 	-> GL ()
-	-> IO ThreadId
-forkGL resumeGL suspendGL swapBuffers = forkOS $ do
+	-> m ThreadId
+forkGL resumeGL suspendGL swapBuffers = liftIO $ forkOS $ do
 	writeIORef drawOrExit (Just swapBuffers)
 	resumeGL -- Note: implicit glFlush here
 	putStrLn "bindEGL"
@@ -118,8 +120,8 @@ forkGL resumeGL suspendGL swapBuffers = forkOS $ do
 		putStrLn "unbindEGL"
 		writeIORef drawOrExit (Just (glLog "Fatal lifecycle bug"))
 
-stopGL :: IO ()
-stopGL = do
+stopGL :: MonadIO m => m ()
+stopGL = liftIO $ do
 	putStrLn "stopGL"
 	writeIORef drawOrExit Nothing
 	let waitGLThread = readIORef drawOrExit >>= \case
@@ -128,11 +130,11 @@ stopGL = do
 	waitGLThread
 	putStrLn "Rendering has stopped."
 
---destroyGL :: IO ()
+--destroyGL :: MonadIO m => m ()
 --destroyGL = runGL $ eglMakeCurrent Nothing, eglDestroyXXX ...
 
-endFrameGL :: IO ()
-endFrameGL = withGL go >>= waitFor >> nop
+endFrameGL :: MonadIO m => m ()
+endFrameGL = liftIO $ withGL go >>= waitFor >> nop
 	where go = do
 		readIORef drawOrExit >>= \case
 			Just eglSwapBuffer -> do
@@ -140,45 +142,45 @@ endFrameGL = withGL go >>= waitFor >> nop
 				modifyIORef frameCounter (+1)
 			Nothing -> myThreadId >>= killThread
 
-runGL :: GL () -> IO ()
-runGL io = writeChan drawQueue io
+runGL :: MonadIO m => GL () -> m ()
+runGL io = liftIO $ writeChan drawQueue io
 
 --runGLRes :: GL () -> IO ()
 --runGLRes io = forkOS
 
-withGL :: GL a -> IO (Future' a)
+withGL :: MonadIO m => GL a -> m (Future' a)
 withGL io = mkFuture $ \update -> runGL (io >>= update . Finished)
 
 -- | drawQueue may have drawcalls that use previous context,
 -- so make it sure they are removed from the queue.
-resetDrawQueue :: IO ()
-resetDrawQueue = do
+resetDrawQueue :: MonadIO m => m ()
+resetDrawQueue = liftIO $ do
 	isEmpty <- isEmptyChan drawQueue
 	when (not isEmpty) (readChan drawQueue >> resetDrawQueue)
 
-glReadLogs :: IO [String]
-glReadLogs = do
+glReadLogs :: MonadIO m => m [String]
+glReadLogs = liftIO $ do
 	isEmpty <- isEmptyChan errorQueue
 	if isEmpty
 		then return []
 		else (:) <$> readChan errorQueue <*> glReadLogs
 
-glLogContents :: IO [String]
-glLogContents = getChanContents errorQueue
+glLogContents :: MonadIO m => m [String]
+glLogContents = liftIO $ getChanContents errorQueue
 
 -- | @return ()@
-nop :: Monad m => m ()
+nop :: MonadIO m => m ()
 nop = return ()
 
-glFrameCount :: IO Int64
-glFrameCount = readIORef frameCounter
+glFrameCount :: MonadIO m => m Int64
+glFrameCount = liftIO $ readIORef frameCounter
 
-glFlipping :: IO Bool
+glFlipping :: m Bool
 glFlipping = fmap odd glFrameCount
 
 -- XXX bindFb defaultFramebuffer needed
 -- | > GLFW.setFramebufferSizeCallback win $ Just (const framesize)
-framesize :: Int -> Int -> IO ()
+framesize :: MonadIO m => Int -> Int -> m ()
 framesize w h = runGL $ glViewport 0 0 (f w) (f h)
 	where f = fromIntegral
 
@@ -204,7 +206,8 @@ glDraw (DrawMode mode) prog@(Program pobj _ _ _) setState unifs
 	--glValidate prog
 	picker mode
 
--- |
+-- | Exists for better documentation.
+-- 
 -- > renderTo $ do
 -- >     bindFb defaultFramebuffer
 -- >     viewport $ V4 0 0 512 512

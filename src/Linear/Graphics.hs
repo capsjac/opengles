@@ -26,7 +26,7 @@ simpleQuad2 = [V2 (-1) 1, V2 1 1, V2 (-1) (-1), V2 1 (-1)]
 wholeUV :: Num a => [V2 Word8]
 wholeUV = [V2 0 0, V2 255 0, V2 0 255, V2 255 255]
 
--- | Build a matrix that modify 2D aspect raito.
+-- | Build a matrix that modify 2D aspect ratio.
 scale2 :: Num a => a -> a -> V2 (V2 a)
 scale2 xScale yScale = V2 (V2 xScale 0) (V2 0 yScale)
 
