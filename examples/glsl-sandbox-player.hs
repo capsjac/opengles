@@ -24,9 +24,10 @@ main = do
 	--GLFW.swapInterval 1
 	forkIO $ mapM_ (putStrLn.("# "++)) =<< glLogContents
 	future <- withGL $ mkPlayer (B.pack shaderSource) >>= mkPlayerObj
+	obj <- expect future
 	t0 <- getCurrentTime
 	let loop c = do
-		withGL $ runAction $ draw win t0 (realToFrac w) (realToFrac h) <$> future
+		withGL $ draw win t0 (realToFrac w) (realToFrac h) obj
 		endFrameGL
 		putStrLn . show $ c
 		GLFW.pollEvents

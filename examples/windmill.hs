@@ -24,10 +24,11 @@ main = do
 		(GLFW.swapBuffers win)
 	forkIO $ mapM_ (putStrLn.("# "++)) =<< glLogContents
 	future <- withGL $ mkWindmill >>= mkSomeObj
+	obj <- expect future
 	rand <- getStdGen
 	t0 <- getCurrentTime
 	let loop c = do
-		withGL $ runAction $ draw win rand t0 <$> future
+		withGL $ draw win rand t0 obj
 		endFrameGL
 		GLFW.pollEvents
 		closing <- GLFW.windowShouldClose win
