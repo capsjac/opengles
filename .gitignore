@@ -1,5 +1,7 @@
-dist/
-docs/
+/dist
+/docs
 *.o
 *.hi
-.stack-work/
+/.stack-work
+/.cabal-sandbox
+/cabal.sandbox.config

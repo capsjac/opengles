@@ -1,5 +1,5 @@
 name:                opengles
-version:             0.8.2
+version:             0.8.3
 synopsis:            Functional interface for OpenGL 4.1+ and OpenGL ES 2.0+
 description:         A functional OpenGL [ES] wrapper library.
                      Made complicated OpenGL APIs easy yet keep flexible enough.
@@ -13,7 +13,9 @@ maintainer:          capsjac <capsjac at gmail.com>
 copyright:           2014-2016 capsjac
 category:            Graphics
 build-type:          Simple
--- extra-source-files:
+extra-source-files:
+  CHANGELOG.md
+  README.md
 cabal-version:       >=1.10
 -- cabal-version:       >=1.24 -- for os(android) support
 
@@ -69,7 +71,7 @@ library
                      , distributive
                      , transformers
                      , vector
-                     , linear
+                     , linear >= 1.20
                      , lens
                      , half
                      , fixed
