@@ -34,7 +34,7 @@ Cons
 Examples
 --------
 
-See [`examples/`](https://github.com/capsjac/opengles/examples) directory.
+See [`examples/`](https://github.com/capsjac/opengles/tree/master/examples) directory.
 
 Contact Information
 -------------------
