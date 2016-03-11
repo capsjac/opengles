@@ -14,21 +14,21 @@ for the current and preceding releases.
 Props
 -----
 
-  Garbage collection for GPU objects
-  Pointer operation free
-  Simplified nearly state-free rendering API
-  Compile-time type check of buffers, textures, programs and so on
-  Run on Linux (Mesa), Windows and Android (OS X / iOS contribution is welcome)
-  Vertex Array Object Extension with fallback
-  Multi Draw Extension with fallback
+- Garbage collection for GPU objects
+- Pointer operation free
+- Simplified nearly state-free rendering API
+- Compile-time type check of buffers, textures, programs and so on
+- Run on Linux (Mesa), Windows and Android (OS X / iOS contribution is welcome)
+- Vertex Array Object Extension with fallback
+- Multi Draw Extension with fallback
 
 Cons
 ----
 
-  Poor documentation and lack of tutorial
-  No legacy APIs
-  No uncommon extensions
-  No support for most of glGet* functionality that harm performance
+- Poor documentation and lack of tutorial
+- No legacy APIs
+- No uncommon extensions
+- No support for most of glGet* functionality that harm performance
 
 
 Examples
